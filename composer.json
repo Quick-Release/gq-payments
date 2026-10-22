@@ -1,0 +1,59 @@
+{
+  "name": "getquick/gq-payments",
+  "version": "0.0.1",
+  "type": "wordpress-plugin",
+  "license": "proprietary",
+  "description": "Payment provider integration for GETQUICK sites.",
+  "homepage": "https://getquick.io",
+  "authors": [
+    {
+      "name": "GETQUICK",
+      "homepage": "https://getquick.io"
+    }
+  ],
+  "require": {
+    "php": ">=8.4.1"
+  },
+  "require-dev": {
+    "dealerdirect/phpcodesniffer-composer-installer": "^1.2",
+    "squizlabs/php_codesniffer": "^3.13",
+    "wp-coding-standards/wpcs": "^3.3"
+  },
+  "autoload": {
+    "psr-4": {
+      "GetQuick\\Payments\\": "src/"
+    }
+  },
+  "extra": {
+    "installer-name": "gq-payments"
+  },
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.4.1"
+    },
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    }
+  },
+  "scripts": {
+    "lint": "phpcs",
+    "format": "phpcbf",
+    "check": [
+      "@composer validate --strict --no-check-version",
+      "@lint"
+    ]
+  },
+  "archive": {
+    "exclude": [
+      "/*",
+      "/.*",
+      "!/gq-payments.php",
+      "!/readme.txt",
+      "!/README.md",
+      "!/LICENSE",
+      "!/composer.json",
+      "!/src"
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<ruleset name="GQ Payments">
+    <description>WordPress Core, Extra and Docs for shipped plugin PHP.</description>
+
+    <file>gq-payments.php</file>
+    <file>src</file>
+    <arg name="extensions" value="php"/>
+    <arg name="basepath" value="."/>
+    <arg value="sp"/>
+    <config name="testVersion" value="8.4-"/>
+
+    <rule ref="WordPress">
+        <!-- Short arrays are the existing PHP 8.4+ project convention. -->
+        <exclude name="Universal.Arrays.DisallowShortArraySyntax"/>
+    </rule>
+
+    <rule ref="Generic.Arrays.DisallowLongArraySyntax"/>
+
+    <!-- Namespaced PSR-4 classes retain their camelCase APIs and local variables.
+         Only snake_case diagnostics in src/ are exempt; prefixing, reserved names,
+         global function names and the other naming checks remain enabled. -->
+    <rule ref="WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid">
+        <exclude-pattern>*/src/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.NamingConventions.ValidVariableName.VariableNotSnakeCase">
+        <exclude-pattern>*/src/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.NamingConventions.ValidVariableName.PropertyNotSnakeCase">
+        <exclude-pattern>*/src/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase">
+        <exclude-pattern>*/src/*</exclude-pattern>
+    </rule>
+
+    <!-- PSR-4 requires matching PascalCase file names only in src/. -->
+    <rule ref="WordPress.Files.FileName.NotHyphenatedLowercase">
+        <exclude-pattern>*/src/*</exclude-pattern>
+    </rule>
+    <rule ref="WordPress.Files.FileName.InvalidClassFileName">
+        <exclude-pattern>*/src/*</exclude-pattern>
+    </rule>
+
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="gq-payments"/>
+            </property>
+        </properties>
+    </rule>
+</ruleset>

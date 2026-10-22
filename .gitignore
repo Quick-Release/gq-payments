@@ -1,0 +1,9 @@
+/vendor/
+/dist/
+/.phpcs-cache
+/.env
+/.env.*
+!/.env.example
+/auth.json
+*.log
+.DS_Store
