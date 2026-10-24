@@ -9,8 +9,10 @@ declare(strict_types=1);
 
 namespace GetQuick\Payments;
 
+use GetQuick\Payments\Admin\PaymentsPage;
+
 /**
- * Owns registration of payment provider integrations.
+ * Wires GQ Payments' modules into WordPress once requirements are met.
  */
 final class Plugin {
 
@@ -18,6 +20,8 @@ final class Plugin {
 	 * Registers plugin services when WordPress has loaded its plugins.
 	 */
 	public function boot(): void {
-		// Provider services will be registered here once the integration is defined.
+		if ( is_admin() ) {
+			( new PaymentsPage() )->register();
+		}
 	}
 }
