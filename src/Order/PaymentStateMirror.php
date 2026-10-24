@@ -53,7 +53,10 @@ final class PaymentStateMirror {
 					PaymentState::PAID         => $this->paid( $order, $state ),
 					PaymentState::EXPIRED      => $this->expired( $order, $state ),
 					PaymentState::LATE_PAYMENT => $this->latePayment( $order, $state ),
-					default                    => $this->note( $order, $state, __( 'recorded.', 'gq-payments' ) ),
+					default                    => $order->add_order_note(
+						/* translators: 1: Payment State, e.g. "pending", 2: version number, 3: attempt ID, or "none". */
+						sprintf( __( 'Payment State "%1$s" (version %2$d, attempt %3$s): recorded.', 'gq-payments' ), ...self::facts( $state ) )
+					),
 				};
 				$this->refunds->mirror( $order, $state, $previousMinor );
 				$order->save();
@@ -73,20 +76,21 @@ final class PaymentStateMirror {
 			return;
 		}
 		if ( ! $order->has_status( 'pending' ) ) {
-			$this->note(
-				$order,
-				$state,
+			$order->add_order_note(
 				sprintf(
-					/* translators: %s: order status name. */
-					__( 'recorded; the order is %s, so its status was left unchanged.', 'gq-payments' ),
-					wc_get_order_status_name( $order->get_status() )
+					/* translators: 1: Payment State, e.g. "paid", 2: version number, 3: attempt ID, or "none", 4: order status name. */
+					__( 'Payment State "%1$s" (version %2$d, attempt %3$s): recorded; the order is %4$s, so its status was left unchanged.', 'gq-payments' ),
+					...[ ...self::facts( $state ), wc_get_order_status_name( $order->get_status() ) ]
 				)
 			);
 			$this->noteRevisionMismatch( $order, $state );
 			return;
 		}
 
-		$this->note( $order, $state, __( 'payment verified by the Payment Service.', 'gq-payments' ) );
+		$order->add_order_note(
+			/* translators: 1: Payment State, e.g. "paid", 2: version number, 3: attempt ID. */
+			sprintf( __( 'Payment State "%1$s" (version %2$d, attempt %3$s): payment verified by the Payment Service.', 'gq-payments' ), ...self::facts( $state ) )
+		);
 		$order->payment_complete( $state->attemptId );
 		$this->noteRevisionMismatch( $order, $state );
 	}
@@ -100,18 +104,28 @@ final class PaymentStateMirror {
 	private function expired( WC_Order $order, PaymentState $state ): void {
 		if ( $order->has_status( 'pending' ) ) {
 			// WooCommerce restores the stock reduced at Payment Start (the order's stock-reduced flag is set).
-			$order->update_status( 'cancelled', self::describe( $state ) . ' ' . __( 'the payment window closed.', 'gq-payments' ) . ' ' );
+			$order->update_status(
+				'cancelled',
+				// The trailing space separates this note from WooCommerce's own status-change sentence.
+				sprintf(
+					/* translators: 1: Payment State, e.g. "expired", 2: version number, 3: attempt ID, or "none". */
+					__( 'Payment State "%1$s" (version %2$d, attempt %3$s): the payment window closed.', 'gq-payments' ),
+					...self::facts( $state )
+				) . ' '
+			);
 			return;
 		}
-		$this->note(
-			$order,
-			$state,
+		$order->add_order_note(
 			$order->has_status( 'cancelled' )
-				? __( 'recorded; the order was already cancelled.', 'gq-payments' )
+				? sprintf(
+					/* translators: 1: Payment State, e.g. "expired", 2: version number, 3: attempt ID, or "none". */
+					__( 'Payment State "%1$s" (version %2$d, attempt %3$s): recorded; the order was already cancelled.', 'gq-payments' ),
+					...self::facts( $state )
+				)
 				: sprintf(
-					/* translators: %s: order status name. */
-					__( 'recorded; the order is %s, so it was not cancelled. Review it in Banquinha.', 'gq-payments' ),
-					wc_get_order_status_name( $order->get_status() )
+					/* translators: 1: Payment State, e.g. "expired", 2: version number, 3: attempt ID, or "none", 4: order status name. */
+					__( 'Payment State "%1$s" (version %2$d, attempt %3$s): recorded; the order is %4$s, so it was not cancelled. Review it in Banquinha.', 'gq-payments' ),
+					...[ ...self::facts( $state ), wc_get_order_status_name( $order->get_status() ) ]
 				)
 		);
 	}
@@ -125,8 +139,11 @@ final class PaymentStateMirror {
 	private function latePayment( WC_Order $order, PaymentState $state ): void {
 		$order->update_meta_data( OrderMeta::LATE_PAYMENT, 'yes' );
 		$order->add_order_note(
-			__( 'Payment received after cancellation — review in Banquinha. Do not fulfil this order before deciding whether to fulfil or refund it.', 'gq-payments' )
-			. ' ' . self::describe( $state ) . ' ' . __( 'Late Payment recorded; the order status was not changed.', 'gq-payments' )
+			sprintf(
+				/* translators: 1: Payment State, e.g. "late_payment", 2: version number, 3: attempt ID. */
+				__( 'Payment received after cancellation — review in Banquinha. Do not fulfil this order before deciding whether to fulfil or refund it. Payment State "%1$s" (version %2$d, attempt %3$s): Late Payment recorded; the order status was not changed.', 'gq-payments' ),
+				...self::facts( $state )
+			)
 		);
 	}
 
@@ -180,28 +197,17 @@ final class PaymentStateMirror {
 	}
 
 	/**
-	 * Notes a Payment State with its version and attempt ID.
-	 *
-	 * @param WC_Order     $order   Order.
-	 * @param PaymentState $state   State.
-	 * @param string       $outcome What it did, e.g. "recorded.".
-	 */
-	private function note( WC_Order $order, PaymentState $state, string $outcome ): void {
-		$order->add_order_note( self::describe( $state ) . ' ' . $outcome );
-	}
-
-	/**
-	 * E.g. 'Payment State "paid" (version 3, attempt att_123):'.
+	 * The placeholders every Payment State note starts with: state, version and attempt ID.
 	 *
 	 * @param PaymentState $state State.
+	 * @return array{0: string, 1: int, 2: string}
 	 */
-	private static function describe( PaymentState $state ): string {
-		return sprintf(
-			/* translators: 1: Payment State, 2: version number, 3: attempt ID. */
-			__( 'Payment State "%1$s" (version %2$d, attempt %3$s):', 'gq-payments' ),
+	private static function facts( PaymentState $state ): array {
+		return [
 			$state->state,
 			$state->version,
-			'' === $state->attemptId ? __( 'none', 'gq-payments' ) : $state->attemptId
-		);
+			/* translators: shown in place of an attempt ID when the Payment State has none. */
+			'' === $state->attemptId ? __( 'none', 'gq-payments' ) : $state->attemptId,
+		];
 	}
 }

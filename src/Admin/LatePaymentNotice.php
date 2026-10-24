@@ -41,8 +41,7 @@ final class LatePaymentNotice {
 		?>
 		<div class="notice notice-error gq-payments-late-payment">
 			<p>
-				<strong><?php esc_html_e( 'Late Payment:', 'gq-payments' ); ?></strong>
-				<?php esc_html_e( 'payment for this order was received after it was cancelled or its stock was released. Do not fulfil it before reviewing the payment in Banquinha, where you can decide to fulfil or refund it.', 'gq-payments' ); ?>
+				<strong><?php esc_html_e( 'Late Payment: payment for this order was received after it was cancelled or its stock was released. Do not fulfil it before reviewing the payment in Banquinha, where you can decide to fulfil or refund it.', 'gq-payments' ); ?></strong>
 				<a href="<?php echo esc_url( PaymentsPage::BANQUINHA_URL ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Open Banquinha', 'gq-payments' ); ?></a>
 			</p>
 		</div>
