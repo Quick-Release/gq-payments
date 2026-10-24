@@ -92,3 +92,74 @@ describe('paid', () => {
     );
   });
 });
+
+const stateNotes = async (order) => (await notes(order)).filter((note) => note.startsWith('Payment State'));
+
+describe('versions', () => {
+  test('a repeated version is acknowledged without side effects', async () => {
+    const order = await startedOrder();
+    const paid = { version: 2, state: 'paid', attempt_id: 'att_dup' };
+    assert.equal((await sendState(order, paid)).status, 200);
+    const before = { notes: await notes(order), emails: await emails(order) };
+
+    const again = await sendState(order, paid);
+
+    assert.equal(again.status, 200, again.text);
+    assert.deepEqual(again.json, { order_id: order.id, version: 2, applied: false });
+    assert.deepEqual(await notes(order), before.notes);
+    assert.deepEqual(await emails(order), before.emails);
+    assert.equal((await wcOrder(order)).status, 'processing');
+  });
+
+  test('an older version arriving late is acknowledged and ignored', async () => {
+    const order = await startedOrder();
+    assert.equal((await sendState(order, { version: 3, state: 'paid', attempt_id: 'att_new' })).status, 200);
+
+    const late = await sendState(order, { version: 1, state: 'pending', attempt_id: 'att_old' });
+
+    assert.equal(late.status, 200, late.text);
+    assert.deepEqual(late.json, { order_id: order.id, version: 3, applied: false });
+    const current = await wcOrder(order);
+    assert.equal(current.status, 'processing');
+    assert.equal(current.transaction_id, 'att_new');
+    assert.equal((await stateNotes(order)).length, 1);
+  });
+
+  test('out-of-order delivery converges on the newest state: expired (v3) before paid (v2) stays cancelled', async () => {
+    const order = await startedOrder();
+
+    assert.equal((await sendState(order, { version: 3, state: 'expired', attempt_id: 'att_1' })).status, 200);
+    const stale = await sendState(order, { version: 2, state: 'paid', attempt_id: 'att_1' });
+
+    assert.equal(stale.json.applied, false);
+    assert.equal((await wcOrder(order)).status, 'cancelled');
+    assert.equal(await stock(order), 5);
+    assert.deepEqual(await emails(order), ['cancelled_order']);
+  });
+
+  test('a pending state is recorded with its version without changing the order', async () => {
+    const order = await startedOrder();
+
+    const response = await sendState(order, { version: 1, state: 'pending', attempt_id: null });
+
+    assert.deepEqual(response.json, { order_id: order.id, version: 1, applied: true });
+    assert.equal((await wcOrder(order)).status, 'pending');
+    assert.equal(await stock(order), 3);
+    assert.deepEqual(await stateNotes(order), ['Payment State "pending" (version 1, attempt none): recorded.']);
+  });
+});
+
+describe('expired', () => {
+  test("cancels the pending order and restores the stock held since Payment Start; only the store's admin is emailed", async () => {
+    const order = await startedOrder();
+
+    const response = await sendState(order, { version: 1, state: 'expired' });
+
+    assert.equal(response.status, 200, response.text);
+    assert.equal((await wcOrder(order)).status, 'cancelled');
+    assert.equal(await stock(order), 5);
+    assert.deepEqual(await emails(order), ['cancelled_order'], "WooCommerce's admin-only Cancelled order email; nothing to the shopper");
+    assert.ok((await notes(order)).some((note) => /^Payment State "expired" \(version 1, attempt att_0001\)/.test(note)));
+    assert.ok(!(await notes(order)).some((note) => note.includes('not payment evidence')), 'not noted as a manual change');
+  });
+});

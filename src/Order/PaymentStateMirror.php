@@ -92,7 +92,22 @@ final class PaymentStateMirror {
 	 * @param PaymentState $state State.
 	 */
 	private function expired( WC_Order $order, PaymentState $state ): void {
-		$this->note( $order, $state, __( 'recorded.', 'gq-payments' ) );
+		if ( $order->has_status( 'pending' ) ) {
+			// WooCommerce restores the stock reduced at Payment Start (the order's stock-reduced flag is set).
+			$order->update_status( 'cancelled', self::describe( $state ) . ' ' . __( 'the payment window closed.', 'gq-payments' ) . ' ' );
+			return;
+		}
+		$this->note(
+			$order,
+			$state,
+			$order->has_status( 'cancelled' )
+				? __( 'recorded; the order was already cancelled.', 'gq-payments' )
+				: sprintf(
+					/* translators: %s: order status name. */
+					__( 'recorded; the order is %s, so it was not cancelled. Review it in Banquinha.', 'gq-payments' ),
+					wc_get_order_status_name( $order->get_status() )
+				)
+		);
 	}
 
 	/**
