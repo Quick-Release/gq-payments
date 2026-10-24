@@ -31,7 +31,7 @@ final class PaymentsPage {
 	 * Banquinha, where payments are administered. A plain link: no credentials,
 	 * no site or user identity, and no referrer.
 	 */
-	public const BANQUINHA_URL = 'https://banquinha.getquick.io/';
+	public const BANQUINHA_URL = 'https://my.banquinha.pt/';
 
 	/** Admin-post actions; each checks the capability and its own nonce. */
 	private const ACTIONS = [

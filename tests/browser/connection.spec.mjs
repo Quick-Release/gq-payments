@@ -103,6 +103,6 @@ test('links to Banquinha without credentials', async ({ page }) => {
   await page.goto('/wp-admin/admin.php?page=gq-payments');
 
   const link = page.getByRole('link', { name: 'Manage payments and refunds in Banquinha' });
-  await expect(link).toHaveAttribute('href', 'https://banquinha.getquick.io/');
+  await expect(link).toHaveAttribute('href', 'https://my.banquinha.pt/');
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
 });
