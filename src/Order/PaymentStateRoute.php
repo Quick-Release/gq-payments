@@ -32,21 +32,7 @@ final class PaymentStateRoute {
 	 */
 	public function register(): void {
 		add_action( 'rest_api_init', [ $this, 'registerRoute' ] );
-		add_filter( 'getquick_config_public_rest_routes', [ $this, 'allowAnonymous' ] );
-	}
-
-	/**
-	 * Lets the Payment Service's signed (anonymous) POST through gq-config's restricted REST mode,
-	 * merged into the same "/gq-payments/v1/orders/*" entry as the snapshot route's GET.
-	 *
-	 * @param array<string, string[]> $routes Route or "/prefix/*" => allowed methods.
-	 * @return array<string, string[]>
-	 */
-	public function allowAnonymous( $routes ): array {
-		$routes             = (array) $routes;
-		$pattern            = '/' . SnapshotRoute::NAMESPACE . '/orders/*';
-		$routes[ $pattern ] = array_values( array_unique( array_merge( (array) ( $routes[ $pattern ] ?? [] ), [ 'POST' ] ) ) );
-		return $routes;
+		add_filter( 'getquick_config_public_rest_routes', static fn( $routes ): array => OrderRoutes::allowAnonymous( $routes, 'POST' ) );
 	}
 
 	/**
@@ -54,7 +40,7 @@ final class PaymentStateRoute {
 	 */
 	public function registerRoute(): void {
 		register_rest_route(
-			SnapshotRoute::NAMESPACE,
+			OrderRoutes::NAMESPACE,
 			'/orders/(?P<id>\d+)/payment-state',
 			[
 				'methods'             => 'POST',
