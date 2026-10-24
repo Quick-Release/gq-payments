@@ -123,7 +123,7 @@ describe('mirroring verified refunds', () => {
     assert.equal(await stock(order), 3);
   });
 
-  test('a refund of a Late Payment is mirrored without fulfilling the order', async () => {
+  test('a refund of a Late Payment is mirrored without changing the cancelled status', async () => {
     const order = await orders.startedOrder();
     assert.equal((await orders.sendState(order, { version: 1, state: 'expired' })).status, 200);
     assert.equal((await orders.sendState(order, { version: 2, state: 'late_payment', attempt_id: 'att_late' })).status, 200);
@@ -131,11 +131,23 @@ describe('mirroring verified refunds', () => {
     const response = await orders.sendState(order, { version: 3, state: 'late_payment', attempt_id: 'att_late', refunded_total: '20.00' });
 
     assert.equal(response.status, 200, response.text);
-    assert.equal(await refundedTotal(order), '20.00');
+    assert.deepEqual(await refunds(order), [{ amount: '20.00', items: 0, refunded_payment: false }]);
     const current = await wcOrder(order);
     assert.equal(current.date_paid, null);
-    assert.equal(current.status, 'refunded');
+    assert.equal(current.status, 'cancelled', 'a Late Payment never changes the order status, even when fully refunded');
+    assert.ok((await notes(order)).some((note) => /Refund of 20\.00 EUR verified by the Payment Service/.test(note)), JSON.stringify(await notes(order)));
     assert.equal(await stock(order), 5, 'stock released at expiry stays released');
+  });
+
+  test('a Late Payment flagged and fully refunded in one message stays cancelled', async () => {
+    const order = await orders.startedOrder();
+    assert.equal((await orders.sendState(order, { version: 1, state: 'expired' })).status, 200);
+
+    const response = await orders.sendState(order, { version: 2, state: 'paid', attempt_id: 'att_late', refunded_total: '20.00' });
+
+    assert.equal(response.status, 200, response.text);
+    assert.equal(await refundedTotal(order), '20.00');
+    assert.equal((await wcOrder(order)).status, 'cancelled');
   });
 });
 

@@ -194,8 +194,10 @@ when their version is newer than the stored one:
   none, so WooCommerce's refunded total always equals the latest verified one.
   Stock is never restored. As usual in WooCommerce, the customer gets the
   partially refunded or refunded email, and a fully refunded order moves to
-  Refunded (also a cancelled order with a refunded Late Payment); that status
-  change comes from Payment State and is not noted as manual. If WooCommerce
+  Refunded; that status change comes from Payment State and is not noted as
+  manual. A Late Payment never changes the order status, so a cancelled order
+  whose Late Payment is refunded stays Cancelled (the refund and its note are
+  still recorded). If WooCommerce
   refuses the refund (for example, the order total was lowered below the
   verified amount), the order gets a review note instead, and the next
   applied version retries the difference.

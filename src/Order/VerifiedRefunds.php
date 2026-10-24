@@ -60,6 +60,14 @@ final class VerifiedRefunds implements RefundMirror {
 
 		$amount = PaymentState::decimal( $increase, $decimals );
 		$total  = PaymentState::decimal( $state->refundedMinor, $decimals );
+		// A Late Payment never changes the order's status (ADR 0004), so a full refund of one
+		// leaves the order Cancelled instead of WooCommerce's usual move to Refunded.
+		$keepStatus = 'yes' === $order->get_meta( OrderMeta::LATE_PAYMENT )
+			? static fn( $status, $orderId ) => (int) $orderId === $order->get_id() ? '' : $status
+			: null;
+		if ( null !== $keepStatus ) {
+			add_filter( 'woocommerce_order_fully_refunded_status', $keepStatus, 10, 2 );
+		}
 		++self::$mirroring;
 		try {
 			$refund = wc_create_refund(
@@ -75,6 +83,9 @@ final class VerifiedRefunds implements RefundMirror {
 			);
 		} finally {
 			--self::$mirroring;
+			if ( null !== $keepStatus ) {
+				remove_filter( 'woocommerce_order_fully_refunded_status', $keepStatus, 10 );
+			}
 		}
 
 		if ( is_wp_error( $refund ) ) {
