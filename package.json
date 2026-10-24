@@ -9,6 +9,7 @@
     "env:start": "wp-env start",
     "env:stop": "wp-env stop",
     "env:destroy": "wp-env destroy --force",
+    "test:node": "node --test tests/node/*.test.mjs",
     "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.test.mjs",
     "test:browser": "playwright test",
     "env:start:multisite": "wp-env --config tests/e2e/multisite/.wp-env.json start",
