@@ -5,6 +5,8 @@
  *
  * Options that steer it:
  * - gq_test_site_key_constant = "off": leave GQ_PAYMENTS_SITE_KEY undefined (Site Key custody falls back to the option).
+ * - gq_test_site_key: base64 secret for GQ_PAYMENTS_SITE_KEY instead of the fixture Site Key.
+ * - gq_test_site_key_next: base64 secret for GQ_PAYMENTS_SITE_KEY_NEXT (undefined otherwise).
  * - gq_test_key_id: key ID the relay route signs with (default site-key-0001).
  *
  * @package GetQuick\Payments\Tests
@@ -34,7 +36,10 @@ define(
 	)
 );
 if ( 'off' !== get_option( 'gq_test_site_key_constant' ) ) {
-	define( 'GQ_PAYMENTS_SITE_KEY', $gq_test_vectors['site_key']['secret_key'] );
+	define( 'GQ_PAYMENTS_SITE_KEY', (string) get_option( 'gq_test_site_key', $gq_test_vectors['site_key']['secret_key'] ) );
+	if ( '' !== (string) get_option( 'gq_test_site_key_next', '' ) ) {
+		define( 'GQ_PAYMENTS_SITE_KEY_NEXT', (string) get_option( 'gq_test_site_key_next' ) );
+	}
 }
 
 // The fake runs on the Docker host (a private IP) on a non-standard port with a

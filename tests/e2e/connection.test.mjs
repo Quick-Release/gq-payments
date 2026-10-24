@@ -2,6 +2,7 @@
 // The administrator drives GETQUICK → Payments over HTTP (logged-in admin-post forms); the Operator's
 // side is tests/e2e/lib/payment-service.mjs.
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
 import { after, afterEach, before, beforeEach, describe, test } from 'node:test';
 import { startFakeService, vectors } from './fake-service/fake-service.mjs';
 import { DOWN, paymentService } from './lib/payment-service.mjs';
@@ -17,7 +18,7 @@ let service;
 let admin;
 
 async function resetConnection() {
-  for (const option of ['gq_payments_site_id', 'gq_payments_site_keys', 'gq_payments_connection', 'gq_payments_environment', 'gq_test_site_key_constant']) {
+  for (const option of ['gq_payments_site_id', 'gq_payments_site_keys', 'gq_payments_connection', 'gq_payments_environment', 'gq_test_site_key_constant', 'gq_test_site_key', 'gq_test_site_key_next']) {
     await site.wp('option', 'delete', option);
   }
   await site.wp('transient', 'delete', 'gq_payments_connection_fresh');
@@ -160,6 +161,94 @@ describe('replacement Connection Request', () => {
       fake.calls.filter((c) => c.path === '/v1/site/status').map((c) => [c.keyId, c.verified]),
       [[second.keyId, true]]
     );
+  });
+
+  test('with GQ_PAYMENTS_SITE_KEY_NEXT set, sends the next key and switches to it only after approval, writing no secret', async () => {
+    const next = newSiteKey();
+    await admin.submit('gq_payments_connection_request');
+    const first = service.latest();
+    assert.equal(first.publicKey, vectors.site_key.public_key);
+    service.approve(first);
+    await admin.submit('gq_payments_refresh_status');
+    await site.wpOk('option', 'update', 'gq_test_site_key_next', next.secret);
+
+    fake.calls.length = 0;
+    await admin.submit('gq_payments_refresh_status');
+    assert.ok(fake.calls.every((c) => c.keyId === first.keyId && c.verified), 'defining the next key changes nothing before a Connection Request');
+
+    await admin.submit('gq_payments_connection_request');
+    const second = service.latest();
+    assert.equal(second.publicKey, next.publicKey);
+
+    let page = await admin.text();
+    assert.match(page, /Connected/);
+    assert.match(page, /Replacement awaiting approval/);
+    assert.ok(page.includes(second.fingerprint), 'shows the replacement fingerprint');
+    fake.calls.length = 0;
+    await admin.submit('gq_payments_refresh_status');
+    assert.ok(fake.calls.some((c) => c.path === '/v1/site/status' && c.keyId === first.keyId && c.verified), 'current key still in use');
+
+    service.approve(second);
+    await admin.submit('gq_payments_refresh_status');
+    fake.calls.length = 0;
+    await admin.submit('gq_payments_refresh_status');
+
+    page = await admin.text();
+    assert.match(page, /Connected/);
+    assert.doesNotMatch(page, /Replacement awaiting approval/);
+    assert.deepEqual(
+      fake.calls.filter((c) => c.path === '/v1/site/status').map((c) => [c.keyId, c.verified]),
+      [[second.keyId, true]]
+    );
+
+    const options = await site.wpOk('db', 'query', 'SELECT option_name, option_value FROM wp_options', '--skip-column-names');
+    const html = await admin.html();
+    for (const secret of [vectors.site_key.secret_key, next.secret]) {
+      const seed = Buffer.from(secret, 'base64').subarray(0, 32).toString('base64');
+      for (const [where, text] of Object.entries({ options: testOptionsOmitted(options), html })) {
+        assert.ok(!text.includes(secret) && !text.includes(seed), `a Site Key secret found in ${where}`);
+      }
+    }
+  });
+
+  test('with GQ_PAYMENTS_SITE_KEY managing the key and no next key, a replacement is refused with guidance', async () => {
+    await admin.submit('gq_payments_connection_request');
+    service.approve();
+    await admin.submit('gq_payments_refresh_status');
+
+    const result = await admin.submit('gq_payments_connection_request');
+
+    assert.match(await admin.follow(result), /set GQ_PAYMENTS_SITE_KEY_NEXT/);
+    assert.equal(service.enrollments.length, 1);
+  });
+
+  test('changing GQ_PAYMENTS_SITE_KEY never makes the new key active before approval', async () => {
+    await admin.submit('gq_payments_connection_request');
+    const first = service.latest();
+    service.approve(first);
+    await admin.submit('gq_payments_refresh_status');
+    const changed = newSiteKey();
+    await site.wpOk('option', 'update', 'gq_test_site_key', changed.secret);
+    // Even if the service trusted the new key, the site must not use it under the enrolled key ID.
+    fake.trustSiteKeys([first.publicKey, changed.publicKey]);
+
+    fake.calls.length = 0;
+    await admin.submit('gq_payments_refresh_status');
+
+    assert.ok(!fake.calls.some((c) => c.keyId === first.keyId), JSON.stringify(fake.calls.map((c) => [c.path, c.keyId])));
+    const page = await admin.text();
+    assert.doesNotMatch(page, /\bConnected\b/);
+    assert.match(page, /The Site Key enrolled with GETQUICK is no longer configured/);
+
+    // A Connection Request for the new key is pending until an Operator approves it.
+    await admin.submit('gq_payments_connection_request');
+    const second = service.latest();
+    assert.equal(second.publicKey, changed.publicKey);
+    assert.match(await admin.text(), /Awaiting approval/);
+    service.approve(second);
+    await admin.submit('gq_payments_refresh_status');
+    assert.match(await admin.text(), /\bConnected\b/);
+    assert.doesNotMatch(await admin.text(), /no longer configured/);
   });
 
   test('the screen offers no way to delete the Site Key or disconnect', async () => {
@@ -306,6 +395,17 @@ describe('Banquinha', () => {
     assert.match(link[0], /rel="noopener noreferrer"/);
   });
 });
+
+/** The options dump without the test-only options that feed the constants. */
+const testOptionsOmitted = (options) => options.split('\n').filter((line) => !line.startsWith('gq_test_site_key')).join('\n');
+
+/** A fresh Ed25519 Site Key: base64 64-byte secret (seed ‖ public key) and base64 public key. */
+function newSiteKey() {
+  const jwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
+  const seed = Buffer.from(jwk.d, 'base64url');
+  const publicKey = Buffer.from(jwk.x, 'base64url');
+  return { secret: Buffer.concat([seed, publicKey]).toString('base64'), publicKey: publicKey.toString('base64') };
+}
 
 /** Logged-in admin driving the Payments screen. */
 function adminSession(get) {

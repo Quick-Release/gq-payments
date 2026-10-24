@@ -148,6 +148,11 @@ final class PaymentsPage {
 					<p><?php esc_html_e( 'The Site Key is stored in the WordPress database, which is the weaker choice: it is included in database exports and backups. Define GQ_PAYMENTS_SITE_KEY in wp-config.php or the server environment to keep it out of the database.', 'gq-payments' ); ?></p>
 				</div>
 			<?php endif; ?>
+			<?php if ( $keys->enrolledKeyMissing() ) : ?>
+				<div class="notice notice-error inline gq-payments-key-missing">
+					<p><?php esc_html_e( 'The Site Key enrolled with GETQUICK is no longer configured, so this site cannot sign as its Site Enrollment. Restore it in GQ_PAYMENTS_SITE_KEY, or create a Connection Request for the configured key. Checkout cannot take payment until an Operator approves it.', 'gq-payments' ); ?></p>
+				</div>
+			<?php endif; ?>
 
 			<section class="gq-payments-card" aria-labelledby="gq-payments-connection">
 				<h2 id="gq-payments-connection"><?php esc_html_e( 'Connection', 'gq-payments' ); ?></h2>
@@ -170,7 +175,10 @@ final class PaymentsPage {
 				<h2 id="gq-payments-connection-request"><?php esc_html_e( 'Connection Request', 'gq-payments' ); ?></h2>
 				<?php if ( null !== $shown ) : ?>
 					<?php if ( null !== $pending && null !== $active ) : ?>
-						<p><?php esc_html_e( 'Replacement awaiting approval. The current Site Key stays in use until GETQUICK approves the new one.', 'gq-payments' ); ?></p>
+						<p><?php esc_html_e( 'Replacement awaiting approval. The current Site Key stays in use until an Operator approves the new one.', 'gq-payments' ); ?></p>
+					<?php endif; ?>
+					<?php if ( $keys->managed() ) : ?>
+						<p class="description"><?php esc_html_e( 'To replace a Site Key set in GQ_PAYMENTS_SITE_KEY, set the new key in GQ_PAYMENTS_SITE_KEY_NEXT and create a replacement Connection Request. Once an Operator approves it, the new key is used; you can then move it to GQ_PAYMENTS_SITE_KEY and remove GQ_PAYMENTS_SITE_KEY_NEXT.', 'gq-payments' ); ?></p>
 					<?php endif; ?>
 					<p><?php esc_html_e( 'Send these details to GETQUICK. An Operator checks the fingerprint before approving the site.', 'gq-payments' ); ?></p>
 					<dl class="gq-payments-request">
@@ -266,8 +274,8 @@ final class PaymentsPage {
 		$key      = isset( $_GET[ self::NOTICE_ARG ] ) ? sanitize_key( wp_unslash( $_GET[ self::NOTICE_ARG ] ) ) : '';
 		$messages = [
 			Connection::REQUESTED        => [ 'success', __( 'Connection Request sent. Send the fingerprint below to GETQUICK for approval.', 'gq-payments' ) ],
-			Connection::ALREADY_ENROLLED => [ 'warning', __( 'This Site Key is already enrolled. To replace it, change GQ_PAYMENTS_SITE_KEY first.', 'gq-payments' ) ],
-			Connection::INVALID_SITE_KEY => [ 'error', __( 'GQ_PAYMENTS_SITE_KEY is not a valid Ed25519 key.', 'gq-payments' ) ],
+			Connection::ALREADY_ENROLLED => [ 'warning', __( 'This Site Key is already enrolled. To replace it, set GQ_PAYMENTS_SITE_KEY_NEXT to a new key and create the replacement Connection Request again. The current key stays in use until an Operator approves the new one.', 'gq-payments' ) ],
+			Connection::INVALID_SITE_KEY => [ 'error', __( 'GQ_PAYMENTS_SITE_KEY or GQ_PAYMENTS_SITE_KEY_NEXT is not a valid Ed25519 key.', 'gq-payments' ) ],
 			Connection::UNREACHABLE      => [ 'error', __( 'The Payment Service could not be reached. Try again later.', 'gq-payments' ) ],
 			Connection::SERVICE_ERROR    => [ 'error', __( 'The Payment Service refused the request.', 'gq-payments' ) ],
 			Connection::NOT_CONNECTED    => [ 'error', __( 'Connect this site before changing payment methods.', 'gq-payments' ) ],

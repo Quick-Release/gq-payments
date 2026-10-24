@@ -20,6 +20,7 @@ final class ConfigurationTest extends TestCase {
 	protected function tearDown(): void {
 		putenv( 'GQ_PAYMENTS_SERVICE_URL' );
 		putenv( 'GQ_PAYMENTS_SITE_KEY' );
+		putenv( 'GQ_PAYMENTS_SITE_KEY_NEXT' );
 	}
 
 	public function test_without_overrides_the_service_url_is_the_release_default(): void {
@@ -40,16 +41,27 @@ final class ConfigurationTest extends TestCase {
 		$this->assertSame( 'c2VjcmV0', Configuration::siteKey() );
 	}
 
+	public function test_the_next_site_key_is_read_from_the_environment(): void {
+		$this->assertSame( '', Configuration::siteKeyNext() );
+
+		putenv( 'GQ_PAYMENTS_SITE_KEY_NEXT=bmV4dA==' );
+
+		$this->assertSame( 'bmV4dA==', Configuration::siteKeyNext() );
+	}
+
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState( false )]
 	public function test_a_constant_wins_over_the_environment(): void {
 		putenv( 'GQ_PAYMENTS_SERVICE_URL=https://from-env.test' );
 		putenv( 'GQ_PAYMENTS_SITE_KEY=from-env' );
+		putenv( 'GQ_PAYMENTS_SITE_KEY_NEXT=from-env' );
+		define( 'GQ_PAYMENTS_SITE_KEY_NEXT', 'next-from-constant' );
 		define( 'GQ_PAYMENTS_SERVICE_URL', 'https://from-constant.test' );
 		define( 'GQ_PAYMENTS_SITE_KEY', ' from-constant ' );
 
 		$this->assertSame( 'https://from-constant.test', Configuration::serviceUrl() );
 		$this->assertSame( 'from-constant', Configuration::siteKey() );
+		$this->assertSame( 'next-from-constant', Configuration::siteKeyNext() );
 		$this->assertSame( 'from-constant', Environment::value( 'GQ_PAYMENTS_SITE_KEY' ) );
 	}
 

@@ -15,7 +15,7 @@ use InvalidArgumentException;
 
 /**
  * Holds the private half only to sign; it never leaves this object except to
- * SiteKeys' option storage (and never when GQ_PAYMENTS_SITE_KEY manages it).
+ * SiteKeys' option storage (and never when GQ_PAYMENTS_SITE_KEY* constants manage it).
  */
 final class SiteKey {
 
@@ -71,15 +71,17 @@ final class SiteKey {
 	}
 
 	/**
-	 * Storage form; the secret is omitted when it comes from GQ_PAYMENTS_SITE_KEY.
+	 * Storage form; the secret is omitted when it comes from a GQ_PAYMENTS_SITE_KEY* constant,
+	 * and the public key and its fingerprint then identify which constant backs the entry.
 	 *
 	 * @param bool $withSecret Whether to include the private key.
-	 * @return array{key_id: string, public_key: string, secret?: string}
+	 * @return array{key_id: string, public_key: string, fingerprint: string, secret?: string}
 	 */
 	public function toStored( bool $withSecret ): array {
 		$stored = [
-			'key_id'     => $this->keyId,
-			'public_key' => $this->publicKey,
+			'key_id'      => $this->keyId,
+			'public_key'  => $this->publicKey,
+			'fingerprint' => $this->fingerprint(),
 		];
 		if ( $withSecret ) {
 			$stored['secret'] = $this->secret;

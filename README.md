@@ -32,6 +32,7 @@ and a 1 MiB response limit.
 |---|---|---|
 | `GQ_PAYMENTS_SERVICE_URL` | constant, then environment variable | Overrides the release default. Never an option. |
 | `GQ_PAYMENTS_SITE_KEY` | constant, then environment variable | Base64 Ed25519 secret key (64 bytes) or seed (32 bytes). |
+| `GQ_PAYMENTS_SITE_KEY_NEXT` | constant, then environment variable | Optional replacement Site Key, same format. Used only by a replacement Connection Request (see Connection). |
 | `GQ_PAYMENTS_SERVICE_PUBLIC_KEYS` | constant only | Array of key ID ⇒ `['environment' => 'sandbox'\|'production', 'public_key' => '<base64 32 bytes>']`. It replaces the shipped Service Keys. |
 
 > **Placeholders:** the real Payment Service keys and address don't exist
@@ -55,8 +56,26 @@ new enrollment connected. No button deletes the key or disconnects the site.
 
 When `GQ_PAYMENTS_SITE_KEY` is not set, keys are generated into the
 `gq_payments_site_keys` option (autoload off), and the screen warns that this
-is the weaker choice. When it is set, no private key is written to the
-database.
+is the weaker choice. When it is set (constant mode), no private key is written
+to the database: the option records only each key's key ID, public key and
+fingerprint, and the site signs with whichever configured constant has the
+enrolled public key.
+
+To replace a key in constant mode:
+
+1. Set the new key in `GQ_PAYMENTS_SITE_KEY_NEXT`, keeping `GQ_PAYMENTS_SITE_KEY`
+   as it is.
+2. Create a replacement Connection Request. It carries the `NEXT` key, and the
+   current key stays in use while it awaits approval.
+3. Once an Operator approves it and the site sees the enrollment connected, the
+   `NEXT` key becomes active.
+4. You may then move the new key to `GQ_PAYMENTS_SITE_KEY` and remove
+   `GQ_PAYMENTS_SITE_KEY_NEXT`.
+
+Changing the constants never makes another key active before approval. If the
+enrolled key is in neither constant any more, the site stops signing as that
+enrollment and the screen says so until a Connection Request for the
+configured key is approved.
 
 Health (connected, awaiting approval, disconnected or unreachable), the
 environment and the **Eligible Methods** come from a signed status call and
