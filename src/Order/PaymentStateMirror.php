@@ -33,7 +33,7 @@ final class PaymentStateMirror {
 	 */
 	public function apply( WC_Order $order, PaymentState $state ): void {
 		$previous      = (string) $order->get_meta( OrderMeta::REFUNDED_TOTAL );
-		$previousMinor = '' === $previous ? 0 : PaymentState::minorUnits( $previous, wc_get_price_decimals() );
+		$previousMinor = '' === $previous ? 0 : Money::toMinor( $previous );
 		$collected     = self::collectedMinor( $order, $state );
 		// The total is cumulative: refunds are never undone, and never exceed what was collected.
 		if ( $state->refundedMinor < $previousMinor || ( null !== $collected && $state->refundedMinor > $collected ) ) {
@@ -45,7 +45,7 @@ final class PaymentStateMirror {
 		if ( '' !== $state->attemptId ) {
 			$order->update_meta_data( OrderMeta::ATTEMPT_ID, $state->attemptId );
 		}
-		$order->update_meta_data( OrderMeta::REFUNDED_TOTAL, PaymentState::decimal( $state->refundedMinor, wc_get_price_decimals() ) );
+		$order->update_meta_data( OrderMeta::REFUNDED_TOTAL, Money::fromMinor( $state->refundedMinor ) );
 
 		StatusSource::applyingPaymentState(
 			function () use ( $order, $state, $previousMinor ): void {
@@ -141,9 +141,9 @@ final class PaymentStateMirror {
 		if ( hash_equals( $current, $state->snapshotRevision ) ) {
 			return;
 		}
-		$currentTotal = self::money( (string) $order->get_total(), $order );
+		$currentTotal = Money::format( Money::toMinor( (string) $order->get_total() ), $order->get_currency() );
 		$minor        = self::collectedMinor( $order, $state );
-		$collected    = null === $minor ? null : PaymentState::decimal( $minor, wc_get_price_decimals() ) . ' ' . $order->get_currency();
+		$collected    = null === $minor ? null : Money::format( $minor, $order->get_currency() );
 		$order->add_order_note(
 			null === $collected
 				? sprintf(
@@ -169,25 +169,14 @@ final class PaymentStateMirror {
 	 * @param PaymentState $state State.
 	 */
 	private static function collectedMinor( WC_Order $order, PaymentState $state ): ?int {
-		$decimals = wc_get_price_decimals();
-		$total    = (string) $order->get_meta( OrderMeta::SNAPSHOT_TOTAL );
+		$total = (string) $order->get_meta( OrderMeta::SNAPSHOT_TOTAL );
 		if ( '' !== $total && hash_equals( (string) $order->get_meta( OrderMeta::SNAPSHOT_REVISION ), $state->snapshotRevision ) ) {
-			return PaymentState::minorUnits( wc_format_decimal( $total, $decimals ), $decimals );
+			return Money::toMinor( $total );
 		}
 		if ( hash_equals( OrderSnapshot::revision( $order ), $state->snapshotRevision ) ) {
-			return PaymentState::minorUnits( wc_format_decimal( (string) $order->get_total(), $decimals ), $decimals );
+			return Money::toMinor( (string) $order->get_total() );
 		}
 		return null;
-	}
-
-	/**
-	 * E.g. "20.00 EUR": plain text, independent of the store's price format.
-	 *
-	 * @param string   $amount Amount.
-	 * @param WC_Order $order  Order (for its currency).
-	 */
-	private static function money( string $amount, WC_Order $order ): string {
-		return wc_format_decimal( $amount, wc_get_price_decimals() ) . ' ' . $order->get_currency();
 	}
 
 	/**

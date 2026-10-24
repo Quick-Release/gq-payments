@@ -69,7 +69,7 @@ final class PaymentState {
 		if ( ! is_string( $refunded ) || 1 !== preg_match( '/^\d{1,12}' . $fraction . '$/D', $refunded ) ) {
 			throw new InvalidPaymentState( 'refunded_total' );
 		}
-		$refundedMinor = self::minorUnits( $refunded, $decimals );
+		$refundedMinor = Money::minorUnits( $refunded, $decimals );
 		if ( $refundedMinor > 0 && ! in_array( $state, [ self::PAID, self::LATE_PAYMENT ], true ) ) {
 			// Only collected money can be refunded.
 			throw new InvalidPaymentState( 'refunded_total' );
@@ -96,30 +96,5 @@ final class PaymentState {
 		}
 
 		return new self( $version, $state, $refundedMinor, $method, $attemptId, $revision );
-	}
-
-	/**
-	 * A decimal string as integer minor units, e.g. "12.3" with 2 decimals => 1230.
-	 *
-	 * @param string $amount   Non-negative decimal string with at most $decimals decimals.
-	 * @param int    $decimals Decimals.
-	 */
-	public static function minorUnits( string $amount, int $decimals ): int {
-		[ $whole, $fraction ] = array_pad( explode( '.', $amount, 2 ), 2, '' );
-		return (int) ( $whole . str_pad( $fraction, $decimals, '0' ) );
-	}
-
-	/**
-	 * Integer minor units as a decimal string, e.g. 1230 with 2 decimals => "12.30".
-	 *
-	 * @param int $minor    Minor units.
-	 * @param int $decimals Decimals.
-	 */
-	public static function decimal( int $minor, int $decimals ): string {
-		if ( $decimals <= 0 ) {
-			return (string) $minor;
-		}
-		$digits = str_pad( (string) $minor, $decimals + 1, '0', STR_PAD_LEFT );
-		return substr( $digits, 0, -$decimals ) . '.' . substr( $digits, -$decimals );
 	}
 }

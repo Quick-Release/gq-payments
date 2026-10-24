@@ -51,15 +51,13 @@ final class VerifiedRefunds implements RefundMirror {
 	 * @param int          $previousMinor Refunded total of the last applied version, in minor units (unused: WooCommerce's own refunds are the reference).
 	 */
 	public function mirror( WC_Order $order, PaymentState $state, int $previousMinor ): void {
-		$decimals = wc_get_price_decimals();
-		$mirrored = PaymentState::minorUnits( wc_format_decimal( (string) $order->get_total_refunded(), $decimals ), $decimals );
+		$mirrored = Money::toMinor( (string) $order->get_total_refunded() );
 		$increase = $state->refundedMinor - $mirrored;
 		if ( $increase <= 0 ) {
 			return;
 		}
 
-		$amount = PaymentState::decimal( $increase, $decimals );
-		$total  = PaymentState::decimal( $state->refundedMinor, $decimals );
+		$amount = Money::fromMinor( $increase );
 		// A Late Payment never changes the order's status (ADR 0004), so a full refund of one
 		// leaves the order Cancelled instead of WooCommerce's usual move to Refunded.
 		$keepStatus = 'yes' === $order->get_meta( OrderMeta::LATE_PAYMENT )
@@ -93,7 +91,7 @@ final class VerifiedRefunds implements RefundMirror {
 				sprintf(
 					/* translators: 1: refund amount with currency, 2: Payment State version, 3: WooCommerce's error message. */
 					__( 'A refund of %1$s verified by the Payment Service (Payment State version %2$d) could not be recorded in WooCommerce: %3$s Review the order in Banquinha.', 'gq-payments' ),
-					$amount . ' ' . $order->get_currency(),
+					Money::format( $increase, $order->get_currency() ),
 					$state->version,
 					$refund->get_error_message()
 				)
@@ -105,9 +103,9 @@ final class VerifiedRefunds implements RefundMirror {
 			sprintf(
 				/* translators: 1: refund amount with currency, 2: Payment State version, 3: cumulative refunded total with currency. */
 				__( 'Refund of %1$s verified by the Payment Service (Payment State version %2$d; refunded total %3$s). Refunds are made in Banquinha; no money moved through WooCommerce and no stock was restored.', 'gq-payments' ),
-				$amount . ' ' . $order->get_currency(),
+				Money::format( $increase, $order->get_currency() ),
 				$state->version,
-				$total . ' ' . $order->get_currency()
+				Money::format( $state->refundedMinor, $order->get_currency() )
 			)
 		);
 	}
