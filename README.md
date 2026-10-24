@@ -124,9 +124,82 @@ on:
 (ADR 0005). The route is added to gq-config's restricted-REST allow-list as
 `/gq-payments/v1/orders/*` (GET).
 
-Order meta (CRUD API only): `_gq_payments_method`,
-`_gq_payments_payment_started_at` (Unix time) and
-`_gq_payments_snapshot_revision` (the revision at Payment Start).
+Order meta (CRUD API only): `_gq_payments_method` (the method chosen at
+checkout).
+
+Order meta written at Payment Start: `_gq_payments_payment_started_at` (Unix
+time), `_gq_payments_snapshot_revision` and `_gq_payments_snapshot_total` (the
+revision and total at Payment Start: the amount the service collects).
+
+## Payment State
+
+The Payment Service sends each order's complete, versioned Payment State
+(ADR 0004) to `POST /wp-json/gq-payments/v1/orders/{id}/payment-state`, signed
+(`Transport::authorize`, whatever the connection state). The body is JSON:
+
+```json
+{ "version": 3, "state": "paid", "refunded_total": "0.00", "method": "mbway",
+  "attempt_id": "att_123", "snapshot_revision": "<64 hex>" }
+```
+
+| Field | Rule |
+|---|---|
+| `version` | Integer ≥ 1. Increases with every change. |
+| `state` | `pending`, `paid`, `expired` or `late_payment`. |
+| `refunded_total` | Cumulative verified refunded amount, a decimal string with at most the store's price decimals. Must be `0` unless the state is `paid` or `late_payment`, never decreases, and never exceeds the amount collected (when the revision is known). |
+| `method` | Method ID, `[a-z0-9_-]{1,64}`. |
+| `attempt_id` | The service's opaque attempt ID, `[A-Za-z0-9_.:-]{0,128}`; required for `paid` and `late_payment`, otherwise optional (`null` or `""`). |
+| `snapshot_revision` | Snapshot Revision the payment was collected against. |
+
+Replies:
+
+- **200** `{ "order_id", "version", "applied" }`. `version` is the order's last
+  applied version. A repeated or older version is acknowledged with
+  `applied: false` and has no effect, so retries and reordering converge.
+- **400** `gq_payments_invalid_payment_state`, with `data.field` naming the
+  offending field. Nothing changed; don't retry the same message.
+- **401** unsigned, forged, stale or replayed. **404** unknown order or another
+  gateway's order. **409** `gq_payments_payment_not_started` (no snapshot was
+  taken yet). **503** `gq_payments_busy` (another message for the order held
+  its lock for 10 s; retry).
+
+Messages for one order are applied one at a time (a MySQL named lock), and only
+when their version is newer than the stored one:
+
+| State | Order Pending payment | Order cancelled | Any other status |
+|---|---|---|---|
+| `pending` | note only | note only | note only |
+| `paid` | `payment_complete( attempt_id )`: Processing or Completed, the usual WooCommerce emails, attempt ID as transaction ID | recorded as a Late Payment | note only, status unchanged |
+| `expired` | cancelled; WooCommerce restores the stock held since Payment Start and sends its admin "Cancelled order" email | note only | note only, not cancelled |
+| `late_payment` | Late Payment | Late Payment | Late Payment |
+
+- **Late Payment:** the status never changes and `payment_complete()` is never
+  called. The order gets the `_gq_payments_late_payment` flag, a note starting
+  "Payment received after cancellation — review in Banquinha", and an error
+  notice on its edit screen (HPOS and legacy).
+- **Revision mismatch:** a `paid` state whose `snapshot_revision` no longer
+  matches the order (it was changed after Payment Start, for example through
+  the REST API) is still applied, with a note "collected X, current total Y —
+  review".
+- **Status sources:** every applied Payment State is noted with its version and
+  attempt ID. Any other status change on a `gq_payments` order (admin screen,
+  REST API, CLI, other plugins) gets a "Status set manually to … — not payment
+  evidence" note. The Store API's own draft-to-pending step is not noted.
+- **Refunds:** the verified `refunded_total` is validated and stored, but no
+  WooCommerce refund is created yet. The `Order\RefundMirror` step of
+  `Order\PaymentStateMirror` receives each applied version (after the status
+  step, inside the Payment State flag, before the save) and is a no-op
+  (`NoRefundMirror`) for now.
+
+The route shares the `/gq-payments/v1/orders/*` entry on gq-config's
+restricted-REST allow-list (GET and POST).
+
+Order meta written by Payment State: `_gq_payments_state_version` (last
+applied version), `_gq_payments_attempt_id` (last attempt ID received),
+`_gq_payments_refunded_total` (last verified refunded total) and
+`_gq_payments_late_payment` (`yes`). No provider references, payer details or
+raw payloads are stored. All order meta goes through the WooCommerce CRUD API,
+so HPOS and legacy storage behave the same, and uninstall keeps it.
 
 ## Installation
 
@@ -177,6 +250,10 @@ three tools:
 - **Scripted replies:** `respond(method, path, reply)` sets how it answers.
 - **Signed calls into the site:** `callSite()`, `signRequest()` and `send()`
   sign requests with the test Service Keys and send them.
+
+The test mu-plugin also records every WooCommerce email sent (ID, order and
+recipient) in the `gq_test_emails` option, so tests can assert which emails
+went out without a mail catcher.
 
 The test mu-plugin `tests/e2e/mu-plugins/gq-test-env.php` points the site at
 `https://host.docker.internal:9443` and defines the test keys. It relaxes the
