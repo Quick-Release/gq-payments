@@ -2,7 +2,8 @@
 /**
  * Removes GQ Payments settings when the plugin is deleted.
  *
- * Order payment history (order meta and order notes) is financial record and
+ * Also drops the replay table of seen request IDs. Order payment history
+ * (order meta and order notes) is financial record and
  * is always kept. Uninstall never contacts the Payment Service or any other
  * external service, and never iterates a network (GQ Payments is single-site).
  *
@@ -35,3 +36,8 @@ foreach ( $gq_payments_patterns as $gq_payments_pattern ) {
 }
 
 delete_option( 'woocommerce_gq_payments_settings' );
+
+// Seen request IDs (Transport\DatabaseReplayStore). The plugin autoloader is not
+// loaded during uninstall, so the table name is repeated here.
+// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Uninstall drops the plugin's own table.
+$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'gq_payments_replay' ) );

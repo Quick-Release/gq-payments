@@ -30,6 +30,19 @@ describe('activation', () => {
 });
 
 describe('WooCommerce order storage', () => {
+  test('runs under the order storage selected for this run (GQ_TEST_STORAGE)', async (t) => {
+    const expected = process.env.GQ_TEST_STORAGE;
+    if (!expected) {
+      t.skip('GQ_TEST_STORAGE not set');
+      return;
+    }
+    const hpos = await site.wpOk(
+      'eval',
+      "echo \\Automattic\\WooCommerce\\Utilities\\OrderUtil::custom_orders_table_usage_is_enabled() ? 'hpos' : 'legacy';"
+    );
+    assert.equal(hpos, expected);
+  });
+
   test('GQ Payments is declared compatible with HPOS', async () => {
     const info = await site.wpOk('wc', 'hpos', 'compatibility-info', '--display-filenames');
 
@@ -46,6 +59,9 @@ describe('uninstall', () => {
     await site.wpOk('option', 'update', 'woocommerce_gq_payments_settings', '{"enabled":"yes"}', '--format=json');
     await site.wpOk('option', 'update', 'gq_paymentsish_unrelated', 'keep');
     await site.wp('option', 'delete', 'gq_test_uninstall_http');
+    await fetch(`${site.url}/wp-json/gq-test/v1/ping`); // Any signed-route request creates the replay table.
+    const replayTable = () => site.wpOk('db', 'query', "SHOW TABLES LIKE 'wp_gq_payments_replay'", '--skip-column-names');
+    assert.equal(await replayTable(), 'wp_gq_payments_replay');
     const orderId = await site.wpOk(
       'eval',
       `$order = wc_create_order();
@@ -64,6 +80,7 @@ describe('uninstall', () => {
     assert.equal((await site.wp('transient', 'get', 'gq_payments_eligible_methods')).stdout, '');
     assert.equal((await site.wp('option', 'get', 'woocommerce_gq_payments_settings')).ok, false);
     assert.equal(await site.wpOk('option', 'get', 'gq_paymentsish_unrelated'), 'keep');
+    assert.equal(await replayTable(), '', 'replay table dropped');
     const history = JSON.parse(
       await site.wpOk(
         'eval',
