@@ -1,4 +1,4 @@
-name: PHP checks
+name: Checks
 
 on:
   pull_request:
@@ -25,5 +25,39 @@ jobs:
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: composer check
-      - run: php -l gq-payments.php && php -l src/Plugin.php
+      - run: composer test
+      - name: Lint shipped PHP
+        run: find gq-payments.php uninstall.php src -name '*.php' -print0 | xargs -0 -n1 php -l
       - run: composer audit
+
+  wordpress:
+    # Self-contained: WordPress and WooCommerce come from wordpress.org; the private
+    # getquick-ecommerce and gq-config plugins are replaced by stubs in tests/e2e.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Start WordPress (single site and multisite)
+        run: |
+          npm run env:start
+          npm run env:start:multisite
+      - name: Site HTTP and lifecycle tests
+        run: npm run test:e2e
+      - name: Multisite tests
+        run: npm run test:e2e:multisite
+      - run: npx playwright install --with-deps chromium
+      - name: Admin screen tests
+        run: npm run test:browser
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
