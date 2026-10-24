@@ -185,11 +185,20 @@ when their version is newer than the stored one:
   attempt ID. Any other status change on a `gq_payments` order (admin screen,
   REST API, CLI, other plugins) gets a "Status set manually to … — not payment
   evidence" note. The Store API's own draft-to-pending step is not noted.
-- **Refunds:** the verified `refunded_total` is validated and stored, but no
-  WooCommerce refund is created yet. The `Order\RefundMirror` step of
-  `Order\PaymentStateMirror` receives each applied version (after the status
-  step, inside the Payment State flag, before the save) and is a no-op
-  (`NoRefundMirror`) for now.
+- **Refunds:** each applied version whose `refunded_total` exceeds the sum of
+  the order's WooCommerce refunds creates one WooCommerce refund for the
+  increase only (`Order\VerifiedRefunds`), with no line items,
+  `refund_payment=false` and `restock_items=false`, the reason "Refund made in
+  Banquinha." and a note "Refund of X verified by the Payment Service …". A
+  repeated or older version, or a newer one with the same total, creates
+  none, so WooCommerce's refunded total always equals the latest verified one.
+  Stock is never restored. As usual in WooCommerce, the customer gets the
+  partially refunded or refunded email, and a fully refunded order moves to
+  Refunded (also a cancelled order with a refunded Late Payment); that status
+  change comes from Payment State and is not noted as manual. If WooCommerce
+  refuses the refund (for example, the order total was lowered below the
+  verified amount), the order gets a review note instead, and the next
+  applied version retries the difference.
 
 The route shares the `/gq-payments/v1/orders/*` entry on gq-config's
 restricted-REST allow-list (GET and POST).
@@ -200,6 +209,21 @@ applied version), `_gq_payments_attempt_id` (last attempt ID received),
 `_gq_payments_late_payment` (`yes`). No provider references, payer details or
 raw payloads are stored. All order meta goes through the WooCommerce CRUD API,
 so HPOS and legacy storage behave the same, and uninstall keeps it.
+
+### Refunds outside Payment State
+
+Refunds on `gq_payments` orders are made in Banquinha. WooCommerce refunds
+created any other way are refused: the plugin throws in
+`woocommerce_create_refund`, so WooCommerce deletes the refund and returns
+"Refunds for this order are made in Banquinha. …". That covers the order
+screen's AJAX refund, the REST API (`POST /wc/v3/orders/<id>/refunds`), other
+plugins calling `wc_create_refund()`, and the automatic refund WooCommerce
+creates when someone sets the status to Refunded by hand (the status still
+changes, with the usual "not payment evidence" note, but no refund is
+recorded and no stock is restored). On the order screen, the Refund button is
+replaced by that message and an "Open Banquinha" link. The gateway declares no
+`refunds` support, so "Refund via gateway" never appears. Refunds on orders of
+other gateways are not affected.
 
 ## Installation
 
