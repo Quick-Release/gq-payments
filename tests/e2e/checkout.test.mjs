@@ -60,7 +60,7 @@ describe('hidden gq_payments gateway through the Store API', () => {
     assert.deepEqual(serviceCalls(), [], 'checkout calls no external service');
   });
 
-  test('the gateway cannot refund: it declares no refunds support', async () => {
+  test('a refund through the gateway is refused: refunds are made in Banquinha', async () => {
     const s = await shopperWithCart();
     const checkout = await s.checkout({ payment: mbway });
     assert.equal(checkout.status, 200, checkout.text);
@@ -68,7 +68,9 @@ describe('hidden gq_payments gateway through the Store API', () => {
     const refund = await site.wp('wc', 'shop_order_refund', 'create', String(checkout.json.order_id), '--amount=1', '--api_refund=true', '--user=admin');
 
     assert.equal(refund.ok, false);
-    assert.match(refund.stderr, /does not support automatic refunds/);
+    // Refused before the gateway is asked (it declares no refunds support either).
+    assert.match(refund.stderr, /Refunds for this order are made in Banquinha/);
+    assert.deepEqual((await order(checkout.json.order_id)).refunds, []);
   });
 
   test('a zero-total order completes through the normal WooCommerce flow, without the gateway', async () => {
