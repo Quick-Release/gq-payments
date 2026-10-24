@@ -122,13 +122,18 @@ describe('hidden gq_payments gateway through the Store API', () => {
 
 describe("hidden from WordPress's own checkout pages", () => {
   let blockCheckoutPage;
+  let comingSoon;
   before(async () => {
     blockCheckoutPage = await site.wpOk('option', 'get', 'woocommerce_checkout_page_id');
+    // A (re)activated WooCommerce can put store pages in "coming soon" mode for visitors.
+    comingSoon = (await site.wp('option', 'get', 'woocommerce_coming_soon')).stdout || 'no';
+    await site.wpOk('option', 'update', 'woocommerce_coming_soon', 'no');
     // Cheque proves the pages do list available gateways.
     await site.wpOk('option', 'update', 'woocommerce_cheque_settings', '{"enabled":"yes","title":"Check payments"}', '--format=json');
   });
   after(async () => {
     await site.wpOk('option', 'update', 'woocommerce_checkout_page_id', blockCheckoutPage);
+    await site.wpOk('option', 'update', 'woocommerce_coming_soon', comingSoon);
     await site.wp('option', 'delete', 'woocommerce_cheque_settings');
   });
 
