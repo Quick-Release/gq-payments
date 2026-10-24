@@ -99,6 +99,11 @@ final class SnapshotRoute {
 		) {
 			return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );
 		}
+		// A cancelled order, or one that left Pending payment before Payment Start (for example
+		// through WooCommerce's unpaid-order cancellation), can no longer start a payment.
+		if ( $order->has_status( 'cancelled' ) || ( ! OrderGuards::paymentStarted( $order ) && ! $order->has_status( 'pending' ) ) ) {
+			return new WP_Error( 'gq_payments_order_not_payable', __( 'This order can no longer be paid.', 'gq-payments' ), [ 'status' => 409 ] );
+		}
 
 		$snapshot = OrderSnapshot::of( $order );
 		$this->markPaymentStart( $order, $snapshot['snapshot_revision'], $snapshot['totals']['total'] );

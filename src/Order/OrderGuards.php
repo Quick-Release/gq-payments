@@ -13,7 +13,7 @@ use GetQuick\Payments\Checkout\Gateway;
 use WC_Order;
 
 /**
- * Locks orders from Payment Start (ADR 0003) and leaves their expiry to the Payment Service (ADR 0005).
+ * Locks orders from Payment Start (ADR 0003) and from then on leaves their expiry to the Payment Service (ADR 0005).
  */
 final class OrderGuards {
 
@@ -36,14 +36,16 @@ final class OrderGuards {
 	}
 
 	/**
-	 * The Payment Service knows each method's real deadline and sends "expired" itself,
-	 * so WooCommerce's hold-stock timer never cancels gq_payments orders.
+	 * From Payment Start the Payment Service knows the method's real deadline and sends
+	 * "expired" itself, so WooCommerce's hold-stock timer never cancels such an order.
+	 * Before Payment Start no payment exists yet, and WooCommerce's usual unpaid-order
+	 * cancellation applies; the snapshot route then refuses the cancelled order.
 	 *
 	 * @param bool          $cancel Whether WooCommerce would cancel the unpaid order.
 	 * @param WC_Order|null $order  Order.
 	 */
 	public function keepUnpaid( $cancel, $order ): bool {
-		return (bool) $cancel && ! ( $order instanceof WC_Order && Gateway::ID === $order->get_payment_method() );
+		return (bool) $cancel && ! self::paymentStarted( $order );
 	}
 
 	/**

@@ -203,6 +203,7 @@ describe("WooCommerce's unpaid-order cancellation", () => {
   });
 
   const status = async (id) => site.wpOk('wc', 'shop_order', 'get', String(id), '--field=status', '--user=admin');
+  const stock = async (product) => Number(await site.wpOk('wc', 'product', 'get', product, '--field=stock_quantity', '--user=admin'));
   // Two hours since the last update, in both storages (the CRUD save always stamps "now").
   const backdate = (id) =>
     site.wpOk(
@@ -212,7 +213,7 @@ describe("WooCommerce's unpaid-order cancellation", () => {
        if ( $wpdb->get_var( "SHOW TABLES LIKE '{$wpdb->prefix}wc_orders'" ) ) { $wpdb->update( $wpdb->prefix . 'wc_orders', [ 'date_updated_gmt' => $t ], [ 'id' => ${Number(id)} ] ); }`
     );
 
-  test('never cancels gq_payments orders, before or after Payment Start', async () => {
+  test('never cancels gq_payments orders past Payment Start, but cancels unpaid ones that never started', async () => {
     const started = await placeOrder({ coupon: null });
     assert.equal((await snapshot(started)).status, 200);
     const notStarted = await placeOrder({ coupon: null });
@@ -226,7 +227,28 @@ describe("WooCommerce's unpaid-order cancellation", () => {
 
     assert.equal(await status(cheque.id), 'cancelled');
     assert.equal(await status(started.id), 'pending');
-    assert.equal(await status(notStarted.id), 'pending');
+    assert.equal(await status(notStarted.id), 'cancelled');
+  });
+
+  test('an order cancelled before Payment Start refuses the snapshot, so no payment can start', async () => {
+    const order = await placeOrder({ quantity: 2, stock: 5, coupon: null });
+    await backdate(order.id);
+    await site.wpOk('eval', 'wc_cancel_unpaid_orders();');
+    assert.equal(await status(order.id), 'cancelled');
+
+    const response = await snapshot(order);
+
+    assert.equal(response.status, 409, response.text);
+    assert.equal(response.json.code, 'gq_payments_order_not_payable');
+    assert.equal(await stock(order.product), 5, 'no stock reduced');
+    const state = await fake.callSite({
+      method: 'POST',
+      route: `/gq-payments/v1/orders/${order.id}/payment-state`,
+      json: { version: 1, state: 'paid', refunded_total: '0.00', method: 'mbway', attempt_id: 'att_1', snapshot_revision: '0'.repeat(64) },
+      siteId: connection.siteId,
+    });
+    assert.equal(state.status, 409, state.text);
+    assert.equal(state.json.code, 'gq_payments_payment_not_started');
   });
 });
 

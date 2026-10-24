@@ -124,8 +124,12 @@ Snapshots and Payment State messages for one order take the same per-order
 MySQL named lock, so concurrent first snapshots mark Payment Start, and reduce
 stock, exactly once.
 
-`gq_payments` orders are never cancelled by WooCommerce's unpaid-order timer
-(ADR 0005). The route is added to gq-config's restricted-REST allow-list as
+From Payment Start, `gq_payments` orders are never cancelled by WooCommerce's
+unpaid-order timer: the Payment Service owns their expiry (ADR 0005). Before
+Payment Start, WooCommerce's usual unpaid-order cancellation still applies to
+abandoned checkouts. A cancelled order, or one that left Pending payment before
+Payment Start, refuses the snapshot with **409** `gq_payments_order_not_payable`,
+so no payment can start on it. The route is added to gq-config's restricted-REST allow-list as
 `/gq-payments/v1/orders/*` (GET).
 
 Order meta (CRUD API only): `_gq_payments_method` (the method chosen at
