@@ -11,6 +11,7 @@ namespace GetQuick\Payments;
 
 use GetQuick\Payments\Admin\LatePaymentNotice;
 use GetQuick\Payments\Admin\PaymentsPage;
+use GetQuick\Payments\Admin\RefundsInBanquinha;
 use GetQuick\Payments\Checkout\Checkout;
 use GetQuick\Payments\Connection\Connection;
 use GetQuick\Payments\Order\OrderGuards;
@@ -40,6 +41,7 @@ final class Plugin {
 		if ( is_admin() ) {
 			( new PaymentsPage() )->register();
 			( new LatePaymentNotice() )->register();
+			( new RefundsInBanquinha() )->register();
 		}
 	}
 }
