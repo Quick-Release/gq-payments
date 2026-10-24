@@ -120,6 +120,10 @@ on:
 - its stock is reduced once (`wc_maybe_reduce_stock_levels`), and the Store
   API's checkout reservation is released.
 
+Snapshots and Payment State messages for one order take the same per-order
+MySQL named lock, so concurrent first snapshots mark Payment Start, and reduce
+stock, exactly once.
+
 `gq_payments` orders are never cancelled by WooCommerce's unpaid-order timer
 (ADR 0005). The route is added to gq-config's restricted-REST allow-list as
 `/gq-payments/v1/orders/*` (GET).

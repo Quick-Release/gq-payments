@@ -145,6 +145,20 @@ describe('Payment Start', () => {
     assert.equal(await stock(order.product), 3);
   });
 
+  test('concurrent first snapshots start the payment once and reduce stock once', async () => {
+    const order = await placeOrder({ quantity: 2, stock: 5, coupon: null });
+
+    const responses = await Promise.all(Array.from({ length: 8 }, () => snapshot(order)));
+
+    for (const response of responses) assert.equal(response.status, 200, response.text);
+    assert.equal(new Set(responses.map((r) => r.json.snapshot_revision)).size, 1);
+    assert.equal(await stock(order.product), 3);
+    const reduced = JSON.parse(
+      await site.wpOk('eval', `echo wp_json_encode( array_values( array_filter( array_map( fn( $n ) => $n->content, wc_get_order_notes( [ 'order_id' => ${order.id} ] ) ), fn( $c ) => str_starts_with( $c, 'Stock levels reduced' ) ) ) );`)
+    );
+    assert.equal(reduced.length, 1, JSON.stringify(reduced));
+  });
+
   test("releases the checkout's stock reservation so held stock is not counted twice", async () => {
     const order = await placeOrder({ quantity: 2, stock: 5, coupon: null });
     assert.equal((await snapshot(order)).status, 200);

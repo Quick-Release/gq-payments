@@ -77,10 +77,25 @@ final class SnapshotRoute {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public function respond( WP_REST_Request $request ): WP_REST_Response|WP_Error {
-		$order = wc_get_order( (int) $request->get_param( 'id' ) );
+		$orderId = (int) $request->get_param( 'id' );
+		$key     = (string) $request->get_param( 'key' );
+		// Locked like Payment State, so concurrent first snapshots mark Payment Start (and reduce stock) once.
+		$reply = OrderLock::run( $orderId, fn(): WP_REST_Response|WP_Error => $this->respondLocked( $orderId, $key ) );
+		return $reply ?? PaymentStateRoute::busy();
+	}
+
+	/**
+	 * Builds the reply while holding the order's lock.
+	 *
+	 * @param int    $orderId Order ID.
+	 * @param string $key     Order key from the request.
+	 */
+	private function respondLocked( int $orderId, string $key ): WP_REST_Response|WP_Error {
+		// Loaded only once locked, so it reflects a Payment Start marked just before.
+		$order = wc_get_order( $orderId );
 		if ( ! $order instanceof WC_Order
 			|| Gateway::ID !== $order->get_payment_method()
-			|| ! $order->key_is_valid( (string) $request->get_param( 'key' ) )
+			|| ! $order->key_is_valid( $key )
 		) {
 			return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );
 		}

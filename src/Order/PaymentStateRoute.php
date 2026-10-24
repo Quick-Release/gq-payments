@@ -22,11 +22,6 @@ use WP_REST_Response;
 final class PaymentStateRoute {
 
 	/**
-	 * Seconds to wait for another Payment State of the same order to finish.
-	 */
-	private const LOCK_TIMEOUT = 10;
-
-	/**
 	 * Builds the route.
 	 *
 	 * @param PaymentStateMirror $mirror Applies newer versions.
@@ -91,33 +86,44 @@ final class PaymentStateRoute {
 			return self::invalid( $invalid->getMessage() );
 		}
 
-		if ( ! self::lock( $orderId ) ) {
-			return new WP_Error( 'gq_payments_busy', __( 'Try again later.', 'gq-payments' ), [ 'status' => 503 ] );
+		$reply = OrderLock::run( $orderId, fn(): WP_REST_Response|WP_Error => $this->applyLocked( $orderId, $state ) );
+		return $reply ?? self::busy();
+	}
+
+	/**
+	 * Applies $state to the order while holding its lock.
+	 *
+	 * @param int          $orderId Order ID.
+	 * @param PaymentState $state   Parsed message.
+	 */
+	private function applyLocked( int $orderId, PaymentState $state ): WP_REST_Response|WP_Error {
+		// Loaded only once locked, so it reflects any Payment State applied just before.
+		$order = wc_get_order( $orderId );
+		if ( ! $order instanceof WC_Order || Gateway::ID !== $order->get_payment_method() ) {
+			return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );
 		}
+		if ( ! OrderGuards::paymentStarted( $order ) ) {
+			return new WP_Error( 'gq_payments_payment_not_started', __( 'Payment has not started for this order.', 'gq-payments' ), [ 'status' => 409 ] );
+		}
+
+		$applied = (int) $order->get_meta( OrderMeta::STATE_VERSION );
+		if ( $state->version <= $applied ) {
+			return self::acknowledge( $orderId, $applied, false );
+		}
+
 		try {
-			// Loaded only once locked, so it reflects any Payment State applied just before.
-			$order = wc_get_order( $orderId );
-			if ( ! $order instanceof WC_Order || Gateway::ID !== $order->get_payment_method() ) {
-				return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );
-			}
-			if ( ! OrderGuards::paymentStarted( $order ) ) {
-				return new WP_Error( 'gq_payments_payment_not_started', __( 'Payment has not started for this order.', 'gq-payments' ), [ 'status' => 409 ] );
-			}
-
-			$applied = (int) $order->get_meta( OrderMeta::STATE_VERSION );
-			if ( $state->version <= $applied ) {
-				return self::acknowledge( $orderId, $applied, false );
-			}
-
-			try {
-				$this->mirror->apply( $order, $state );
-			} catch ( InvalidPaymentState $invalid ) {
-				return self::invalid( $invalid->getMessage() );
-			}
-			return self::acknowledge( $orderId, $state->version, true );
-		} finally {
-			self::unlock( $orderId );
+			$this->mirror->apply( $order, $state );
+		} catch ( InvalidPaymentState $invalid ) {
+			return self::invalid( $invalid->getMessage() );
 		}
+		return self::acknowledge( $orderId, $state->version, true );
+	}
+
+	/**
+	 * 503 reply: another request held the order's lock for too long; retry.
+	 */
+	public static function busy(): WP_Error {
+		return new WP_Error( 'gq_payments_busy', __( 'Try again later.', 'gq-payments' ), [ 'status' => 503 ] );
 	}
 
 	/**
@@ -151,38 +157,5 @@ final class PaymentStateRoute {
 				'field'  => $field,
 			]
 		);
-	}
-
-	/**
-	 * Serialises Payment State per order across requests with a MySQL named lock,
-	 * which works the same under HPOS and legacy order storage.
-	 *
-	 * @param int $orderId Order ID.
-	 */
-	private static function lock( int $orderId ): bool {
-		global $wpdb;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a lock, not data.
-		return '1' === (string) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK( %s, %d )', self::lockName( $orderId ), self::LOCK_TIMEOUT ) );
-	}
-
-	/**
-	 * Releases the order's lock.
-	 *
-	 * @param int $orderId Order ID.
-	 */
-	private static function unlock( int $orderId ): void {
-		global $wpdb;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- a lock, not data.
-		$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK( %s )', self::lockName( $orderId ) ) );
-	}
-
-	/**
-	 * Lock name, unique per database prefix and order (MySQL allows 64 characters).
-	 *
-	 * @param int $orderId Order ID.
-	 */
-	private static function lockName( int $orderId ): string {
-		global $wpdb;
-		return substr( 'gq_payments_state_' . md5( DB_NAME . $wpdb->prefix ) . '_' . $orderId, 0, 64 );
 	}
 }
