@@ -53,6 +53,17 @@ describe('hidden gq_payments gateway through the Store API', () => {
     assert.equal(fake.calls.length, 0, 'checkout calls no external service');
   });
 
+  test('the gateway cannot refund: it declares no refunds support', async () => {
+    const s = await shopperWithCart();
+    const checkout = await s.checkout({ payment: mbway });
+    assert.equal(checkout.status, 200, checkout.text);
+
+    const refund = await site.wp('wc', 'shop_order_refund', 'create', String(checkout.json.order_id), '--amount=1', '--api_refund=true', '--user=admin');
+
+    assert.equal(refund.ok, false);
+    assert.match(refund.stderr, /does not support automatic refunds/);
+  });
+
   const eligible = (methods) => site.wpOk('option', 'update', 'gq_test_eligible_methods', JSON.stringify(methods), '--format=json');
   const offered = async (s) => (await s.cart()).json.payment_methods;
 
@@ -93,5 +104,55 @@ describe('hidden gq_payments gateway through the Store API', () => {
       const checkout = await s.checkout({ payment: { method: 'gq_payments', data } });
       assert.equal(checkout.status, 400, checkout.text);
     }
+  });
+});
+
+describe("hidden from WordPress's own checkout pages", () => {
+  let blockCheckoutPage;
+  before(async () => {
+    blockCheckoutPage = await site.wpOk('option', 'get', 'woocommerce_checkout_page_id');
+    // Cheque proves the pages do list available gateways.
+    await site.wpOk('option', 'update', 'woocommerce_cheque_settings', '{"enabled":"yes","title":"Check payments"}', '--format=json');
+  });
+  after(async () => {
+    await site.wpOk('option', 'update', 'woocommerce_checkout_page_id', blockCheckoutPage);
+    await site.wp('option', 'delete', 'woocommerce_cheque_settings');
+  });
+
+  /** An anonymous browser session with the product in its cart; resolves get(path) → HTML. */
+  async function browserWithCart() {
+    const jar = new Map();
+    const get = async (path) => {
+      const response = await fetch(`${site.url}${path}`, { redirect: 'manual', headers: { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; ') } });
+      for (const cookie of response.headers.getSetCookie()) {
+        const [pair] = cookie.split(';');
+        jar.set(pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1));
+      }
+      const location = response.headers.get('location');
+      return location ? get(new URL(location, site.url).pathname + new URL(location, site.url).search) : response.text();
+    };
+    await get(`/?add-to-cart=${product}`);
+    return get;
+  }
+
+  test('the classic (shortcode) checkout does not offer gq_payments', async () => {
+    const page = await site.wpOk('post', 'create', '--post_type=page', '--post_status=publish', '--post_title=Classic checkout', '--post_content=[woocommerce_checkout]', '--porcelain');
+    await site.wpOk('option', 'update', 'woocommerce_checkout_page_id', page);
+    const get = await browserWithCart();
+
+    const html = await get(`/?page_id=${page}`);
+    await site.wpOk('post', 'delete', page, '--force');
+
+    assert.match(html, /id="payment_method_cheque"/);
+    assert.doesNotMatch(html, /payment_method_gq_payments/);
+  });
+
+  test('the block checkout has no gq_payments payment method to render', async () => {
+    const get = await browserWithCart();
+
+    const html = await get(`/?page_id=${blockCheckoutPage}`);
+
+    const settings = JSON.parse(decodeURIComponent(html.match(/var wcSettings = JSON\.parse\( decodeURIComponent\( '([^']+)' \) \)/)[1]));
+    assert.deepEqual(Object.keys(settings.paymentMethodData), ['cheque']);
   });
 });

@@ -39,6 +39,7 @@ final class Checkout {
 	 */
 	public function register(): void {
 		add_filter( 'woocommerce_payment_gateways', [ $this, 'addGateway' ] );
+		add_filter( 'woocommerce_available_payment_gateways', [ $this, 'hideOutsideStoreApi' ] );
 		// Before the Store API's legacy bridge (999), which then calls Gateway::process_payment().
 		add_action( 'woocommerce_rest_checkout_process_payment_with_context', [ $this, 'acceptMethod' ], 10, 2 );
 	}
@@ -53,6 +54,22 @@ final class Checkout {
 		$this->gateway ??= new Gateway( $this->availability );
 		$gateways        = (array) $gateways;
 		$gateways[]      = $this->gateway;
+		return $gateways;
+	}
+
+	/**
+	 * Offers gq_payments only to Store API requests (the headless storefront), never on
+	 * WordPress's classic checkout or pay-for-order pages. Block checkout never shows it
+	 * either: the gateway registers no block integration.
+	 *
+	 * @param array<string, mixed> $gateways Available gateways by ID.
+	 * @return array<string, mixed>
+	 */
+	public function hideOutsideStoreApi( $gateways ): array {
+		$gateways = (array) $gateways;
+		if ( ! WC()->is_store_api_request() ) {
+			unset( $gateways[ Gateway::ID ] );
+		}
 		return $gateways;
 	}
 
