@@ -28,6 +28,22 @@ final class SnapshotRoute {
 	 */
 	public function register(): void {
 		add_action( 'rest_api_init', [ $this, 'registerRoute' ] );
+		add_filter( 'getquick_config_public_rest_routes', [ $this, 'allowAnonymous' ] );
+	}
+
+	/**
+	 * Lets the Payment Service's signed (anonymous) GET through gq-config's restricted REST mode.
+	 * gq-config matches exact routes or "/prefix/*" only, so per-order routes need the wildcard;
+	 * Transport::authorize still guards every route under it.
+	 *
+	 * @param array<string, string[]> $routes Route or "/prefix/*" => allowed methods.
+	 * @return array<string, string[]>
+	 */
+	public function allowAnonymous( $routes ): array {
+		$routes             = (array) $routes;
+		$pattern            = '/' . self::NAMESPACE . '/orders/*';
+		$routes[ $pattern ] = array_values( array_unique( array_merge( (array) ( $routes[ $pattern ] ?? [] ), [ 'GET' ] ) ) );
+		return $routes;
 	}
 
 	/**

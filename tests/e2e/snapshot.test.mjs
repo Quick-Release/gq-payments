@@ -211,3 +211,32 @@ describe("WooCommerce's unpaid-order cancellation", () => {
     assert.equal(await status(notStarted.id), 'pending');
   });
 });
+
+describe("gq-config's restricted REST mode", () => {
+  before(async () => {
+    await site.wpOk('option', 'update', 'gq_test_anonymous_rest_mode', 'restricted');
+    // The storefront's own allow-list entry for the Store API (added by another plugin in production).
+    await site.wpOk('option', 'update', 'gq_test_public_rest_routes', '{"/wc/store/v1/*":["GET","POST","OPTIONS"]}', '--format=json');
+  });
+  after(async () => {
+    await site.wp('option', 'delete', 'gq_test_anonymous_rest_mode');
+    await site.wp('option', 'delete', 'gq_test_public_rest_routes');
+  });
+
+  test('the snapshot route is on the allow-list', async () => {
+    const order = await placeOrder({ coupon: null });
+
+    const response = await snapshot(order);
+
+    assert.equal(response.status, 200, response.text);
+  });
+
+  test('the allow-list entry does not open other gq-payments methods or routes', async () => {
+    const order = await placeOrder({ coupon: null });
+
+    const post = await fake.callSite({ method: 'POST', route: `/gq-payments/v1/orders/${order.id}/snapshot`, json: {} });
+
+    assert.equal(post.status, 401, post.text);
+    assert.equal(post.json.code, 'getquick_rest_auth_required');
+  });
+});
