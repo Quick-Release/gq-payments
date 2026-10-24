@@ -20,7 +20,15 @@ _Avoid_: shop, domain, site (when meaning an approved one)
 A GETQUICK staff member who approves Site Enrollments and manages payment configuration outside WordPress.
 _Avoid_: admin, support
 
+**Banquinha**:
+GETQUICK's administration dashboard, where financial actions such as reviewing payments and making refunds happen.
+_Avoid_: dashboard, back office, admin panel
+
 ## Connection
+
+**Site ID**:
+The identifier a WordPress site generates with its first Connection Request and keeps after disconnect, by which the Payment Service tells sites apart in signed messages.
+_Avoid_: store ID, client ID, tenant
 
 **Site Enrollment**:
 The Operator-approved binding between one WordPress site, one Storefront and one environment (sandbox or production).
@@ -55,6 +63,10 @@ _Avoid_: order version, hash
 **Payment Start**:
 The moment the Payment Service accepts an Order Snapshot and begins collecting payment for it; from then on the order is locked.
 _Avoid_: checkout, charge, payment creation
+
+**Payment Attempt**:
+One try by the Payment Service to collect an order's payment; its attempt ID becomes the order's transaction ID once paid.
+_Avoid_: transaction, charge, payment intent
 
 **Payment State**:
 The Payment Service's current verdict on an order's payment, which the store mirrors and never decides by itself.

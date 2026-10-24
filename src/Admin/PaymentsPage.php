@@ -180,7 +180,7 @@ final class PaymentsPage {
 					<?php if ( $keys->managed() ) : ?>
 						<p class="description"><?php esc_html_e( 'To replace a Site Key set in GQ_PAYMENTS_SITE_KEY, set the new key in GQ_PAYMENTS_SITE_KEY_NEXT and create a replacement Connection Request. Once an Operator approves it, the new key is used; you can then move it to GQ_PAYMENTS_SITE_KEY and remove GQ_PAYMENTS_SITE_KEY_NEXT.', 'gq-payments' ); ?></p>
 					<?php endif; ?>
-					<p><?php esc_html_e( 'Send these details to GETQUICK. An Operator checks the fingerprint before approving the site.', 'gq-payments' ); ?></p>
+					<p><?php esc_html_e( 'Send these details to GETQUICK. An Operator checks the fingerprint before approving the Site Enrollment.', 'gq-payments' ); ?></p>
 					<dl class="gq-payments-request">
 						<dt><?php esc_html_e( 'Site URL', 'gq-payments' ); ?></dt>
 						<dd><code><?php echo esc_html( home_url() ); ?></code></dd>
@@ -257,8 +257,8 @@ final class PaymentsPage {
 	 */
 	private static function healthText( string $health ): array {
 		return match ( $health ) {
-			Connection::CONNECTED         => [ __( 'Connected', 'gq-payments' ), __( 'GETQUICK approved this site. Checkout can take payment with the methods switched on below.', 'gq-payments' ) ],
-			Connection::AWAITING_APPROVAL => [ __( 'Awaiting approval', 'gq-payments' ), __( 'GETQUICK has not approved the Connection Request yet. Checkout cannot take payment until it does.', 'gq-payments' ) ],
+			Connection::CONNECTED         => [ __( 'Connected', 'gq-payments' ), __( 'An Operator approved this site\'s Site Enrollment. Checkout can take payment with the methods switched on below.', 'gq-payments' ) ],
+			Connection::AWAITING_APPROVAL => [ __( 'Awaiting approval', 'gq-payments' ), __( 'An Operator has not approved the Site Enrollment for this Connection Request yet. Checkout cannot take payment until one does.', 'gq-payments' ) ],
 			Connection::DISCONNECTED      => [ __( 'Disconnected', 'gq-payments' ), __( 'GETQUICK does not currently accept this site. New checkouts cannot take payment; payments already started are still recorded. Contact GETQUICK or create a new Connection Request.', 'gq-payments' ) ],
 			Connection::UNREACHABLE       => [ __( 'Unreachable', 'gq-payments' ), __( 'The Payment Service could not be reached or answered with an error. The status below is the last one it reported.', 'gq-payments' ) ],
 			default                       => [ __( 'Not connected', 'gq-payments' ), __( 'This site has not sent a Connection Request yet.', 'gq-payments' ) ],
