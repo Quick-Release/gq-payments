@@ -11,6 +11,7 @@ namespace GetQuick\Payments\Checkout;
 
 use GetQuick\Payments\Connection\Availability;
 use GetQuick\Payments\Order\OrderMeta;
+use WC_Order;
 use WC_Payment_Gateway;
 
 /**
@@ -22,6 +23,15 @@ use WC_Payment_Gateway;
 final class Gateway extends WC_Payment_Gateway {
 
 	public const ID = 'gq_payments';
+
+	/**
+	 * Whether $order is a gq_payments order: one paid (or to be paid) through this gateway.
+	 *
+	 * @param mixed $order Order, or anything else (which is never one).
+	 */
+	public static function owns( mixed $order ): bool {
+		return $order instanceof WC_Order && self::ID === $order->get_payment_method();
+	}
 
 	/**
 	 * Connection state and Eligible Methods.

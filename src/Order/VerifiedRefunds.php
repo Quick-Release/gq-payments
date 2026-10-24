@@ -124,7 +124,7 @@ final class VerifiedRefunds implements RefundMirror {
 			return;
 		}
 		$order = $refund instanceof WC_Order_Refund ? wc_get_order( $refund->get_parent_id() ) : false;
-		if ( ! $order instanceof WC_Order || Gateway::ID !== $order->get_payment_method() ) {
+		if ( ! Gateway::owns( $order ) ) {
 			return;
 		}
 		throw new Exception( esc_html( self::refusal() ) );

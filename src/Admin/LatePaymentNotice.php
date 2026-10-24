@@ -12,7 +12,6 @@ namespace GetQuick\Payments\Admin;
 use Automattic\WooCommerce\Utilities\OrderUtil;
 use GetQuick\Payments\Checkout\Gateway;
 use GetQuick\Payments\Order\OrderMeta;
-use WC_Order;
 
 /**
  * Warns on a gq_payments order's edit screen (HPOS or legacy) when a Late Payment was received.
@@ -34,8 +33,7 @@ final class LatePaymentNotice {
 			return;
 		}
 		$order = wc_get_order( self::orderId() );
-		if ( ! $order instanceof WC_Order
-			|| Gateway::ID !== $order->get_payment_method()
+		if ( ! Gateway::owns( $order )
 			|| 'yes' !== $order->get_meta( OrderMeta::LATE_PAYMENT )
 		) {
 			return;

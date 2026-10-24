@@ -93,8 +93,7 @@ final class SnapshotRoute {
 	private function respondLocked( int $orderId, string $key ): WP_REST_Response|WP_Error {
 		// Loaded only once locked, so it reflects a Payment Start marked just before.
 		$order = wc_get_order( $orderId );
-		if ( ! $order instanceof WC_Order
-			|| Gateway::ID !== $order->get_payment_method()
+		if ( ! Gateway::owns( $order )
 			|| ! $order->key_is_valid( $key )
 		) {
 			return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );

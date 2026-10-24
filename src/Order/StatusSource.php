@@ -59,8 +59,7 @@ final class StatusSource {
 	 */
 	public function noteManualChange( $orderId, $from, $to, $order = null ): void {
 		if ( self::$applying > 0
-			|| ! $order instanceof WC_Order
-			|| Gateway::ID !== $order->get_payment_method()
+			|| ! Gateway::owns( $order )
 			// The Store API's own checkout step (draft → Pending payment), not a status decision.
 			|| 'checkout-draft' === $from
 		) {

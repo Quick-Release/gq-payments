@@ -11,7 +11,6 @@ namespace GetQuick\Payments\Order;
 
 use GetQuick\Payments\Checkout\Gateway;
 use GetQuick\Payments\Transport\Transport;
-use WC_Order;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -99,7 +98,7 @@ final class PaymentStateRoute {
 	private function applyLocked( int $orderId, PaymentState $state ): WP_REST_Response|WP_Error {
 		// Loaded only once locked, so it reflects any Payment State applied just before.
 		$order = wc_get_order( $orderId );
-		if ( ! $order instanceof WC_Order || Gateway::ID !== $order->get_payment_method() ) {
+		if ( ! Gateway::owns( $order ) ) {
 			return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );
 		}
 		if ( ! OrderGuards::paymentStarted( $order ) ) {

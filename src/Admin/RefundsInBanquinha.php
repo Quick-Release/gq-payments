@@ -35,7 +35,7 @@ final class RefundsInBanquinha {
 	 * @param WC_Order|null $order   Order.
 	 */
 	public function hideRefunds( $render, $orderId, $order = null ): bool {
-		return (bool) $render && ! self::isOurs( $order );
+		return (bool) $render && ! Gateway::owns( $order );
 	}
 
 	/**
@@ -44,7 +44,7 @@ final class RefundsInBanquinha {
 	 * @param WC_Order|null $order Order.
 	 */
 	public function render( $order ): void {
-		if ( ! self::isOurs( $order ) ) {
+		if ( ! Gateway::owns( $order ) ) {
 			return;
 		}
 		?>
@@ -53,14 +53,5 @@ final class RefundsInBanquinha {
 			<a href="<?php echo esc_url( PaymentsPage::BANQUINHA_URL ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Open Banquinha', 'gq-payments' ); ?></a>
 		</span>
 		<?php
-	}
-
-	/**
-	 * Whether $order is a gq_payments order.
-	 *
-	 * @param mixed $order Order.
-	 */
-	private static function isOurs( $order ): bool {
-		return $order instanceof WC_Order && Gateway::ID === $order->get_payment_method();
 	}
 }

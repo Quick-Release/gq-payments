@@ -54,8 +54,7 @@ final class OrderGuards {
 	 * @param mixed $order Order.
 	 */
 	public static function paymentStarted( $order ): bool {
-		return $order instanceof WC_Order
-			&& Gateway::ID === $order->get_payment_method()
+		return Gateway::owns( $order )
 			&& '' !== (string) $order->get_meta( OrderMeta::PAYMENT_STARTED_AT );
 	}
 }
