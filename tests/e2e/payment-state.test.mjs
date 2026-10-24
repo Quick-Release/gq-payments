@@ -219,3 +219,34 @@ describe('late_payment', () => {
     assert.doesNotMatch(await orderScreen(order), /gq-payments-late-payment/);
   });
 });
+
+describe('paid after an admin edit (Snapshot Revision mismatch)', () => {
+  test('still completes the order and notes the amount collected against the current total for review', async () => {
+    const order = await startedOrder();
+    // A €2.00 fee added after Payment Start through code/REST, which ignore the editing lock.
+    await site.wpOk(
+      'eval',
+      `$order = wc_get_order( ${order.id} ); $fee = new WC_Order_Item_Fee(); $fee->set_name( 'Gift wrap' ); $fee->set_total( '2.00' ); $order->add_item( $fee ); $order->calculate_totals( false ); $order->save();`
+    );
+
+    const response = await sendState(order, { version: 1, state: 'paid', attempt_id: 'att_mismatch' });
+
+    assert.equal(response.status, 200, response.text);
+    const paid = await wcOrder(order);
+    assert.equal(paid.status, 'processing');
+    assert.equal(paid.transaction_id, 'att_mismatch');
+    assert.deepEqual((await emails(order)).sort(), ['customer_processing_order', 'new_order']);
+    assert.ok(
+      (await notes(order)).some((note) => note.includes('collected 20.00 EUR, current total 22.00 EUR — review')),
+      JSON.stringify(await notes(order))
+    );
+  });
+
+  test('no review note when the order is unchanged', async () => {
+    const order = await startedOrder();
+
+    assert.equal((await sendState(order, { version: 1, state: 'paid' })).status, 200);
+
+    assert.ok(!(await notes(order)).some((note) => note.includes('— review')));
+  });
+});

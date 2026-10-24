@@ -86,7 +86,7 @@ final class SnapshotRoute {
 		}
 
 		$snapshot = OrderSnapshot::of( $order );
-		$this->markPaymentStart( $order, $snapshot['snapshot_revision'] );
+		$this->markPaymentStart( $order, $snapshot['snapshot_revision'], $snapshot['totals']['total'] );
 
 		return new WP_REST_Response( $snapshot );
 	}
@@ -96,13 +96,15 @@ final class SnapshotRoute {
 	 *
 	 * @param WC_Order $order    Order.
 	 * @param string   $revision Snapshot Revision just served.
+	 * @param string   $total    Its total: the amount the Payment Service collects.
 	 */
-	private function markPaymentStart( WC_Order $order, string $revision ): void {
+	private function markPaymentStart( WC_Order $order, string $revision, string $total ): void {
 		if ( ! $order->has_status( 'pending' ) || '' !== (string) $order->get_meta( OrderMeta::PAYMENT_STARTED_AT ) ) {
 			return;
 		}
 		$order->update_meta_data( OrderMeta::PAYMENT_STARTED_AT, (string) time() );
 		$order->update_meta_data( OrderMeta::SNAPSHOT_REVISION, $revision );
+		$order->update_meta_data( OrderMeta::SNAPSHOT_TOTAL, $total );
 		$order->save();
 
 		// Sets the order's stock-reduced flag, so payment_complete() won't reduce again and cancelling restores it.

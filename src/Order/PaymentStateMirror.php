@@ -131,6 +131,51 @@ final class PaymentStateMirror {
 	 * @param PaymentState $state State.
 	 */
 	private function noteRevisionMismatch( WC_Order $order, PaymentState $state ): void {
+		$current = OrderSnapshot::revision( $order );
+		if ( hash_equals( $current, $state->snapshotRevision ) ) {
+			return;
+		}
+		$currentTotal = self::money( (string) $order->get_total(), $order );
+		$collected    = self::collectedTotal( $order, $state );
+		$order->add_order_note(
+			null === $collected
+				? sprintf(
+					/* translators: 1: short Snapshot Revision, 2: current order total with currency. */
+					__( 'The order changed after the snapshot this payment was collected for: collected the total of Snapshot Revision %1$s, current total %2$s — review.', 'gq-payments' ),
+					substr( $state->snapshotRevision, 0, 12 ),
+					$currentTotal
+				)
+				: sprintf(
+					/* translators: 1: amount collected with currency, 2: current order total with currency. */
+					__( 'The order changed after the snapshot this payment was collected for: collected %1$s, current total %2$s — review.', 'gq-payments' ),
+					$collected,
+					$currentTotal
+				)
+		);
+	}
+
+	/**
+	 * The amount collected, when the payment's Snapshot Revision is the one taken at Payment Start.
+	 *
+	 * @param WC_Order     $order Order.
+	 * @param PaymentState $state State.
+	 */
+	private static function collectedTotal( WC_Order $order, PaymentState $state ): ?string {
+		$total = (string) $order->get_meta( OrderMeta::SNAPSHOT_TOTAL );
+		if ( '' === $total || ! hash_equals( (string) $order->get_meta( OrderMeta::SNAPSHOT_REVISION ), $state->snapshotRevision ) ) {
+			return null;
+		}
+		return self::money( $total, $order );
+	}
+
+	/**
+	 * E.g. "20.00 EUR": plain text, independent of the store's price format.
+	 *
+	 * @param string   $amount Amount.
+	 * @param WC_Order $order  Order (for its currency).
+	 */
+	private static function money( string $amount, WC_Order $order ): string {
+		return wc_format_decimal( $amount, wc_get_price_decimals() ) . ' ' . $order->get_currency();
 	}
 
 	/**
