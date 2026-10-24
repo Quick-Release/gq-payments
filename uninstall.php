@@ -37,7 +37,8 @@ foreach ( $gq_payments_patterns as $gq_payments_pattern ) {
 
 delete_option( 'woocommerce_gq_payments_settings' );
 
-// Seen request IDs (Transport\DatabaseReplayStore). The plugin autoloader is not
-// loaded during uninstall, so the table name is repeated here.
-// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Uninstall drops the plugin's own table.
-$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . 'gq_payments_replay' ) );
+// Seen request IDs. The plugin and its autoloader are not loaded during uninstall,
+// so load the replay store directly; it owns its table's name and removal.
+require_once __DIR__ . '/src/Transport/ReplayStore.php';
+require_once __DIR__ . '/src/Transport/DatabaseReplayStore.php';
+GetQuick\Payments\Transport\DatabaseReplayStore::uninstall();

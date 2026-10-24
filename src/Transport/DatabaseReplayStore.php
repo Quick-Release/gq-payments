@@ -54,12 +54,13 @@ final class DatabaseReplayStore implements ReplayStore {
 	}
 
 	/**
-	 * Drops the table (uninstall).
+	 * Drops the table and forgets its schema version (uninstall.php calls this).
 	 */
 	public static function uninstall(): void {
 		global $wpdb;
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange -- Uninstall drops the plugin's own table.
 		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', self::table() ) );
+		delete_option( self::VERSION_OPTION );
 	}
 
 	/**
