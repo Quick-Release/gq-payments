@@ -52,4 +52,46 @@ describe('hidden gq_payments gateway through the Store API', () => {
     assert.equal(placed.payment_method_title, 'MB WAY');
     assert.equal(fake.calls.length, 0, 'checkout calls no external service');
   });
+
+  const eligible = (methods) => site.wpOk('option', 'update', 'gq_test_eligible_methods', JSON.stringify(methods), '--format=json');
+  const offered = async (s) => (await s.cart()).json.payment_methods;
+
+  test('the gateway is unavailable while the site is not connected', async () => {
+    await site.wpOk('option', 'delete', 'gq_payments_site_id');
+    const s = await shopperWithCart();
+
+    assert.ok(!(await offered(s)).includes('gq_payments'));
+    const checkout = await s.checkout({ payment: mbway });
+    assert.equal(checkout.status, 400, checkout.text);
+  });
+
+  test('the gateway is unavailable while no method is eligible', async () => {
+    await eligible([]);
+    const s = await shopperWithCart();
+
+    assert.ok(!(await offered(s)).includes('gq_payments'));
+    const checkout = await s.checkout({ payment: mbway });
+    assert.equal(checkout.status, 400, checkout.text);
+  });
+
+  test('a method that is not eligible is refused while another is offered', async () => {
+    await eligible(['multibanco']);
+    const s = await shopperWithCart();
+    assert.ok((await offered(s)).includes('gq_payments'));
+
+    const refused = await s.checkout({ payment: mbway });
+    assert.equal(refused.status, 400, refused.text);
+
+    const accepted = await s.checkout({ payment: { method: 'gq_payments', data: { gq_method: 'multibanco' } } });
+    assert.equal(accepted.status, 200, accepted.text);
+    assert.equal((await order(accepted.json.order_id)).payment_method_title, 'Multibanco');
+  });
+
+  test('a checkout without a known method is refused', async () => {
+    for (const data of [{}, { gq_method: 'bitcoin' }]) {
+      const s = await shopperWithCart();
+      const checkout = await s.checkout({ payment: { method: 'gq_payments', data } });
+      assert.equal(checkout.status, 400, checkout.text);
+    }
+  });
 });
