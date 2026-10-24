@@ -10,7 +10,7 @@ import { createServer } from 'node:https';
 import { HEADERS, header, inboundPath, signHeaders, verifyRequest } from './signing.mjs';
 
 export const vectors = JSON.parse(readFileSync(new URL('../../fixtures/signing.json', import.meta.url), 'utf8'));
-export const DEFAULT_PORT = 9443;
+export const DEFAULT_PORT = Number(process.env.GQ_TEST_FAKE_SERVICE_PORT ?? 9443);
 export const DEFAULT_KEY_ID = 'test-sandbox-current';
 /** Site ID the test environment gives the site (gq-test-env.php sets the option). */
 export const TEST_SITE_ID = vectors.cases[0].headers['GQ-Payments-Site-Id'];
@@ -21,7 +21,7 @@ const tls = (name) => readFileSync(new URL(`./tls/${name}`, import.meta.url));
  * Starts the fake.
  *
  * @param {object} [options]
- * @param {number} [options.port]    Port on all interfaces (default 9443; the test mu-plugin allows it).
+ * @param {number} [options.port]    Port on all interfaces (default GQ_TEST_FAKE_SERVICE_PORT or 9443; the test mu-plugin allows it).
  * @param {string} [options.siteUrl] WordPress base URL for callSite() (default WP_BASE_URL or http://localhost:8988).
  */
 export async function startFakeService({ port = DEFAULT_PORT, siteUrl = process.env.WP_BASE_URL ?? 'http://localhost:8988' } = {}) {
@@ -29,6 +29,7 @@ export async function startFakeService({ port = DEFAULT_PORT, siteUrl = process.
   const calls = [];
   const scripts = new Map();
   const seen = new Set();
+  const selfSigned = new Set();
   let siteKeys = [vectors.site_key.public_key];
 
   const server = createServer({ key: tls('test-only-key.pem'), cert: tls('test-only-cert.pem') }, async (req, res) => {
@@ -36,15 +37,17 @@ export async function startFakeService({ port = DEFAULT_PORT, siteUrl = process.
     for await (const chunk of req) chunks.push(chunk);
     const body = Buffer.concat(chunks).toString('utf8');
     const path = req.url;
-    const requestKey = `${header(req.headers, HEADERS.keyId)}\n${header(req.headers, HEADERS.requestId)}`;
-    const signed = siteKeys.some((publicKey) => verifyRequest({ method: req.method, path, body, headers: req.headers, publicKey }));
-    const replayed = signed && seen.has(requestKey);
-    if (signed) seen.add(requestKey);
-
     let json = null;
     try {
       json = body ? JSON.parse(body) : null;
     } catch {}
+
+    const requestKey = `${header(req.headers, HEADERS.keyId)}\n${header(req.headers, HEADERS.requestId)}`;
+    // Self-signed routes (enrollment) also accept the public key the request itself carries.
+    const candidates = selfSigned.has(`${req.method} ${path.split('?')[0]}`) && typeof json?.public_key === 'string' ? [...siteKeys, json.public_key] : siteKeys;
+    const signed = candidates.some((publicKey) => verifyRequest({ method: req.method, path, body, headers: req.headers, publicKey }));
+    const replayed = signed && seen.has(requestKey);
+    if (signed) seen.add(requestKey);
     const call = {
       method: req.method,
       path,
@@ -140,10 +143,18 @@ export async function startFakeService({ port = DEFAULT_PORT, siteUrl = process.
     trustSiteKeys(publicKeys) {
       siteKeys = [...publicKeys];
     },
+    /**
+     * Also verifies calls to METHOD PATH against the `public_key` in their own JSON body
+     * (proof of possession, as for a Connection Request signed by a key not yet enrolled).
+     */
+    acceptSelfSigned(method, path) {
+      selfSigned.add(`${method.toUpperCase()} ${path}`);
+    },
     /** Clears recorded calls and scripts, and trusts the fixture Site Key again. */
     reset() {
       calls.length = 0;
       scripts.clear();
+      selfSigned.clear();
       siteKeys = [vectors.site_key.public_key];
     },
     signRequest,

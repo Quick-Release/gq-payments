@@ -10,7 +10,7 @@ declare(strict_types=1);
 namespace GetQuick\Payments\Checkout;
 
 /**
- * Method IDs sent in the Store API checkout's payment_data (key "gq_method"), with their titles.
+ * How a Store API checkout names its method (payment_data key "gq_method"), and method titles.
  */
 final class Methods {
 
@@ -24,25 +24,7 @@ final class Methods {
 	];
 
 	/**
-	 * Every method ID the plugin knows.
-	 *
-	 * @return list<string>
-	 */
-	public static function ids(): array {
-		return array_keys( self::TITLES );
-	}
-
-	/**
-	 * Whether the plugin knows the method.
-	 *
-	 * @param string $method Method ID.
-	 */
-	public static function isKnown( string $method ): bool {
-		return isset( self::TITLES[ $method ] );
-	}
-
-	/**
-	 * The method's title, or null for an unknown method.
+	 * The method's brand name for the order's payment method title, or null when there is none.
 	 *
 	 * @param string $method Method ID.
 	 */

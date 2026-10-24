@@ -32,12 +32,6 @@ test('falls back to Settings → Payments without the GETQUICK menu', async ({ p
   await expect(page.getByRole('heading', { level: 1, name: 'Payments' })).toBeVisible();
 });
 
-test('shows a connection status placeholder', async ({ page }) => {
-  await page.goto('/wp-admin/admin.php?page=gq-payments');
-
-  await expect(page.getByRole('region', { name: 'Connection' })).toContainText('Not connected');
-});
-
 test('loads its stylesheet only on the Payments screen', async ({ page }) => {
   const stylesheet = 'link#gq-payments-admin-css';
 

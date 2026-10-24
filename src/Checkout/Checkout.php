@@ -11,6 +11,7 @@ namespace GetQuick\Payments\Checkout;
 
 use Automattic\WooCommerce\StoreApi\Payments\PaymentContext;
 use Automattic\WooCommerce\StoreApi\Payments\PaymentResult;
+use GetQuick\Payments\Connection\Availability;
 use GetQuick\Payments\Order\OrderMeta;
 use InvalidArgumentException;
 
@@ -85,7 +86,7 @@ final class Checkout {
 			return;
 		}
 		$method = (string) ( $context->payment_data[ Methods::PAYMENT_DATA_KEY ] ?? '' );
-		if ( ! Methods::isKnown( $method ) || ! $this->availability->isMethodEligible( $method ) ) {
+		if ( '' === $method || ! $this->availability->isMethodEligible( $method ) ) {
 			throw new InvalidArgumentException( esc_html__( 'This payment method is not available.', 'gq-payments' ) );
 		}
 		$context->order->update_meta_data( OrderMeta::METHOD, $method );

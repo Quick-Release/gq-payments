@@ -43,13 +43,49 @@ and a 1 MiB response limit.
 The plugin stores seen request IDs in the `{prefix}gq_payments_replay` table,
 which uninstall drops.
 
+## Connection
+
+On **GETQUICK → Payments** an administrator creates a **Connection Request**.
+The site sends its URL, the Site Key's public key and a short fingerprint
+(`SHA256:xxxx:xxxx:xxxx:xxxx`) to the Payment Service, and the screen shows
+them so they can be passed to GETQUICK. An Operator approves the Site
+Enrollment outside WordPress. A replacement Connection Request creates a
+pending key, which replaces the active key only once the service reports the
+new enrollment connected. No button deletes the key or disconnects the site.
+
+When `GQ_PAYMENTS_SITE_KEY` is not set, keys are generated into the
+`gq_payments_site_keys` option (autoload off), and the screen warns that this
+is the weaker choice. When it is set, no private key is written to the
+database.
+
+Health (connected, awaiting approval, disconnected or unreachable), the
+environment and the **Eligible Methods** come from a signed status call and
+are cached for 60 seconds (`gq_payments_connection`). The Payment Service owns
+the environment and the method toggles; turning a method on or off goes
+through the signed site-configuration call. Error messages are fixed texts
+that never repeat what the service said. The Banquinha link carries no
+credentials or identity.
+
+| Call (site → service, signed) | Body | Reply |
+|---|---|---|
+| `POST /v1/site/enrollments` (signed by the new key, empty key ID) | `site_id`, `site_url`, `public_key`, `fingerprint` | `key_id`, `status` |
+| `GET /v1/site/status` | — | `status` (`connected`, `awaiting_approval`, `disconnected`, `revoked`), `environment`, `methods` |
+| `POST /v1/site/configuration` | `methods: { <id>: bool }` | `methods` |
+
+Each method is `{ id, label, status: 'eligible'|'unavailable', enabled }`.
+The gateway asks `GetQuick\Payments\Connection\Connection::fromWordPress()`,
+which implements `Connection\Availability`: `isConnected()`,
+`isMethodEligible( $id )` (connected, eligible and switched on) and
+`eligibleMethodIds()`. While the service is unreachable, the last reported
+answer stands. Signed Payment Service requests are verified whatever the
+connection state, so existing orders keep receiving Payment State.
+
 ## Checkout and Order Snapshot
 
 The `gq_payments` gateway is used only through the Store API (ADR 0003). The
 storefront sends `payment_method: "gq_payments"` to `POST /wc/store/v1/checkout`,
 with the chosen method in `payment_data` as `{ "key": "gq_method", "value":
-"mbway" }`. Known methods are `mbway` (MB WAY) and `multibanco`
-(Multibanco). The gateway:
+"mbway" }`. The gateway:
 
 - leaves the order in Pending payment, titled with the method, and calls no
   external service;
@@ -59,10 +95,11 @@ with the chosen method in `payment_data` as `{ "key": "gq_method", "value":
 - is available only while the site is connected and at least one method is
   eligible. A checkout with a missing or ineligible method gets a 400.
 
-Availability goes through the `Checkout\Availability` interface. Its default
-implementation treats the site as connected when it has a Site ID, and treats
-every known method as eligible while connected. The
-`gq_payments_site_connected` and `gq_payments_method_eligible` filters adjust it.
+Availability comes from `Connection\Availability` (see Connection). The
+gateway is available while the site is connected and at least one method is
+eligible and switched on, and a checkout must name one of those methods.
+The order's payment method title is the method's brand name (`MB WAY`,
+`Multibanco`), or the gateway's title for other methods.
 
 The Payment Service then fetches
 `GET /wp-json/gq-payments/v1/orders/{id}/snapshot?key={order key}`, signed
@@ -152,10 +189,12 @@ emulates the restricted-REST gate, which these options toggle:
 - `gq_test_anonymous_rest_mode`: `restricted` turns the gate on.
 - `gq_test_public_rest_routes`: extra allow-list entries.
 
-`gq-test-availability.php` lets tests choose the eligible methods with the
-`gq_test_eligible_methods` option (a JSON array of method IDs).
-
 CI runs the site suite under legacy and HPOS order storage.
+
+To run a second environment alongside the default one, put the ports in a
+git-ignored `.wp-env.override.json`, for example
+`{ "port": 8890, "config": { "GQ_TEST_FAKE_SERVICE_PORT": 9444 } }`, and run the
+tests with `WP_BASE_URL=http://localhost:8890 GQ_TEST_FAKE_SERVICE_PORT=9444`.
 
 Run the npm scripts from the repository root: wp-env resolves the multisite
 config's local paths against the working directory. Recreate the multisite

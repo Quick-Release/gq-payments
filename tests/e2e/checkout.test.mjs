@@ -2,29 +2,36 @@
 // gq_payments gateway; the fake Payment Service then pulls the signed Order Snapshot (ADR 0003).
 import assert from 'node:assert/strict';
 import { after, afterEach, before, describe, test } from 'node:test';
-import { startFakeService, TEST_SITE_ID } from './fake-service/fake-service.mjs';
+import { startFakeService } from './fake-service/fake-service.mjs';
+import { connectSite, forgetConnection, MBWAY, MULTIBANCO } from './lib/connect.mjs';
 import { baseline, singleSite as site } from './lib/site.mjs';
 import { createProduct, shopper } from './lib/store.mjs';
 
 let fake;
+let connection;
 let product;
 
 before(async () => {
   fake = await startFakeService();
   await baseline();
-  await site.wpOk('option', 'update', 'gq_payments_site_id', TEST_SITE_ID);
+  connection = await connectSite(fake, { methods: [MBWAY, MULTIBANCO] });
   await site.wpOk('option', 'update', 'woocommerce_currency', 'EUR');
   product = await createProduct(site, { price: '10.00', stock: 50 });
+  fake.calls.length = 0;
 });
 afterEach(async () => {
-  fake.reset();
-  await site.wpOk('option', 'update', 'gq_payments_site_id', TEST_SITE_ID);
-  await site.wp('option', 'delete', 'gq_test_eligible_methods');
+  fake.calls.length = 0;
+  connection.service.setMethods([MBWAY, MULTIBANCO]);
+  connection.service.approve();
+  await connection.refresh();
 });
 after(async () => {
-  await site.wp('option', 'delete', 'gq_payments_site_id');
+  await forgetConnection();
   await fake?.close();
 });
+
+/** Outbound calls other than the connection's own status refreshes. */
+const serviceCalls = () => fake.calls.filter((call) => call.path !== '/v1/site/status');
 
 const order = async (id) => JSON.parse(await site.wpOk('wc', 'shop_order', 'get', String(id), '--user=admin', '--format=json'));
 const mbway = { method: 'gq_payments', data: { gq_method: 'mbway' } };
@@ -50,7 +57,7 @@ describe('hidden gq_payments gateway through the Store API', () => {
     assert.equal(placed.status, 'pending');
     assert.equal(placed.payment_method, 'gq_payments');
     assert.equal(placed.payment_method_title, 'MB WAY');
-    assert.equal(fake.calls.length, 0, 'checkout calls no external service');
+    assert.deepEqual(serviceCalls(), [], 'checkout calls no external service');
   });
 
   test('the gateway cannot refund: it declares no refunds support', async () => {
@@ -74,14 +81,44 @@ describe('hidden gq_payments gateway through the Store API', () => {
     const placed = await order(checkout.json.order_id);
     assert.equal(placed.status, 'processing');
     assert.equal(placed.payment_method, '');
-    assert.equal(fake.calls.length, 0);
+    assert.deepEqual(serviceCalls(), []);
   });
 
-  const eligible = (methods) => site.wpOk('option', 'update', 'gq_test_eligible_methods', JSON.stringify(methods), '--format=json');
+  /** The Payment Service changes the Eligible Methods and the site picks up the new status. */
+  const eligible = async (methods) => {
+    connection.service.setMethods(methods);
+    await connection.refresh();
+  };
   const offered = async (s) => (await s.cart()).json.payment_methods;
 
-  test('the gateway is unavailable while the site is not connected', async () => {
-    await site.wpOk('option', 'delete', 'gq_payments_site_id');
+  for (const how of ['disconnected', 'revoked']) {
+    test(`the gateway is refused at checkout once the site is ${how}`, async () => {
+      connection.service.disconnect(how);
+      await connection.refresh();
+      const s = await shopperWithCart();
+
+      assert.ok(!(await offered(s)).includes('gq_payments'));
+      const checkout = await s.checkout({ payment: mbway });
+      assert.equal(checkout.status, 400, checkout.text);
+      assert.equal(checkout.json.code, 'woocommerce_rest_checkout_payment_method_disabled');
+    });
+  }
+
+  test('the gateway is unavailable before the site was ever connected', async () => {
+    await forgetConnection();
+    try {
+      const s = await shopperWithCart();
+
+      assert.ok(!(await offered(s)).includes('gq_payments'));
+      const checkout = await s.checkout({ payment: mbway });
+      assert.equal(checkout.status, 400, checkout.text);
+    } finally {
+      connection = await connectSite(fake, { methods: [MBWAY, MULTIBANCO] });
+    }
+  });
+
+  test('the gateway is unavailable while no method is eligible and switched on', async () => {
+    await eligible([{ ...MBWAY, enabled: false }, { ...MULTIBANCO, status: 'unavailable' }]);
     const s = await shopperWithCart();
 
     assert.ok(!(await offered(s)).includes('gq_payments'));
@@ -89,17 +126,8 @@ describe('hidden gq_payments gateway through the Store API', () => {
     assert.equal(checkout.status, 400, checkout.text);
   });
 
-  test('the gateway is unavailable while no method is eligible', async () => {
-    await eligible([]);
-    const s = await shopperWithCart();
-
-    assert.ok(!(await offered(s)).includes('gq_payments'));
-    const checkout = await s.checkout({ payment: mbway });
-    assert.equal(checkout.status, 400, checkout.text);
-  });
-
-  test('a method that is not eligible is refused while another is offered', async () => {
-    await eligible(['multibanco']);
+  test('a method that is switched off is refused while another is offered', async () => {
+    await eligible([{ ...MBWAY, enabled: false }, MULTIBANCO]);
     const s = await shopperWithCart();
     assert.ok((await offered(s)).includes('gq_payments'));
 

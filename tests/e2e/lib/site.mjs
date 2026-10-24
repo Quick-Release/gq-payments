@@ -65,9 +65,15 @@ export function site({ config, url }) {
       throw new Error(`Login as ${username} failed with HTTP ${response.status}`);
     }
 
-    return async function get(path, { headers = {} } = {}) {
-      const page = await fetch(`${url}${path}`, { redirect: 'manual', headers: { ...headers, cookie: cookieHeader() } });
-      return { status: page.status, html: await page.text() };
+    /** GET by default; pass { form } to POST it url-encoded. Redirects are not followed. */
+    return async function get(path, { headers = {}, form } = {}) {
+      const page = await fetch(`${url}${path}`, {
+        redirect: 'manual',
+        ...(form ? { method: 'POST', body: new URLSearchParams(form) } : {}),
+        headers: { ...(form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}), ...headers, cookie: cookieHeader() },
+      });
+      remember(page);
+      return { status: page.status, html: await page.text(), location: page.headers.get('location') };
     };
   }
 

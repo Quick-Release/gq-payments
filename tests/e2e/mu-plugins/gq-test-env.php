@@ -15,7 +15,10 @@ use GetQuick\Payments\Transport\Signer;
 use GetQuick\Payments\Transport\Transport;
 
 const GQ_TEST_FAKE_SERVICE_HOST = 'host.docker.internal';
-const GQ_TEST_FAKE_SERVICE_PORT = 9443;
+// Overridable from wp-env config (e.g. .wp-env.override.json) to run parallel environments.
+if ( ! defined( 'GQ_TEST_FAKE_SERVICE_PORT' ) ) {
+	define( 'GQ_TEST_FAKE_SERVICE_PORT', 9443 );
+}
 
 $gq_test_vectors = json_decode( (string) file_get_contents( WP_PLUGIN_DIR . '/gq-payments/tests/fixtures/signing.json' ), true );
 

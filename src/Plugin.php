@@ -11,7 +11,7 @@ namespace GetQuick\Payments;
 
 use GetQuick\Payments\Admin\PaymentsPage;
 use GetQuick\Payments\Checkout\Checkout;
-use GetQuick\Payments\Checkout\EnrollmentAvailability;
+use GetQuick\Payments\Connection\Connection;
 use GetQuick\Payments\Order\OrderGuards;
 use GetQuick\Payments\Order\SnapshotRoute;
 
@@ -24,8 +24,7 @@ final class Plugin {
 	 * Registers plugin services when WordPress has loaded its plugins.
 	 */
 	public function boot(): void {
-		$availability = new EnrollmentAvailability();
-		( new Checkout( $availability ) )->register();
+		( new Checkout( Connection::fromWordPress() ) )->register();
 		( new SnapshotRoute() )->register();
 		( new OrderGuards() )->register();
 

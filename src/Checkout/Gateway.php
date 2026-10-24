@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace GetQuick\Payments\Checkout;
 
+use GetQuick\Payments\Connection\Availability;
 use GetQuick\Payments\Order\OrderMeta;
 use WC_Payment_Gateway;
 
@@ -47,18 +48,10 @@ final class Gateway extends WC_Payment_Gateway {
 	}
 
 	/**
-	 * Available while the site is connected and at least one method is eligible.
+	 * Available while the site is connected and at least one method is eligible and switched on.
 	 */
 	public function is_available(): bool {
-		if ( ! $this->checkoutAvailability->isConnected() ) {
-			return false;
-		}
-		foreach ( Methods::ids() as $method ) {
-			if ( $this->checkoutAvailability->isMethodEligible( $method ) ) {
-				return true;
-			}
-		}
-		return false;
+		return [] !== $this->checkoutAvailability->eligibleMethodIds();
 	}
 
 	/**
@@ -70,11 +63,8 @@ final class Gateway extends WC_Payment_Gateway {
 	public function process_payment( $order_id ): array {
 		$order = wc_get_order( $order_id );
 		if ( $order ) {
-			$title = Methods::title( (string) $order->get_meta( OrderMeta::METHOD ) );
-			if ( null !== $title ) {
-				$order->set_payment_method_title( $title );
-				$order->save();
-			}
+			$order->set_payment_method_title( Methods::title( (string) $order->get_meta( OrderMeta::METHOD ) ) ?? $this->title );
+			$order->save();
 		}
 		return [
 			'result'   => 'success',
