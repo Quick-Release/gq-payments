@@ -43,6 +43,54 @@ and a 1 MiB response limit.
 The plugin stores seen request IDs in the `{prefix}gq_payments_replay` table,
 which uninstall drops.
 
+## Checkout and Order Snapshot
+
+The `gq_payments` gateway is used only through the Store API (ADR 0003). The
+storefront sends `payment_method: "gq_payments"` to `POST /wc/store/v1/checkout`,
+with the chosen method in `payment_data` as `{ "key": "gq_method", "value":
+"mbway" }`. Known methods are `mbway` (MB WAY) and `multibanco`
+(Multibanco). The gateway:
+
+- leaves the order in Pending payment, titled with the method, and calls no
+  external service;
+- has no refunds support and no settings;
+- is hidden from classic checkout and pay-for-order pages, and registers no
+  block checkout integration;
+- is available only while the site is connected and at least one method is
+  eligible. A checkout with a missing or ineligible method gets a 400.
+
+Availability goes through the `Checkout\Availability` interface. Its default
+implementation treats the site as connected when it has a Site ID, and treats
+every known method as eligible while connected. The
+`gq_payments_site_connected` and `gq_payments_method_eligible` filters adjust it.
+
+The Payment Service then fetches
+`GET /wp-json/gq-payments/v1/orders/{id}/snapshot?key={order key}`, signed
+(`Transport::authorize`). Unknown orders, wrong keys and orders of other
+gateways all get the same 404. The body holds totals only, as decimal strings:
+
+```json
+{ "order_id": 123, "currency": "EUR", "status": "pending",
+  "totals": { "items_net": "18.00", "items_tax": "4.14", "shipping_net": "5.00",
+              "shipping_tax": "1.15", "fees_net": "0.00", "fees_tax": "0.00", "total": "28.29" },
+  "snapshot_revision": "<sha256 hex of order ID, currency and totals>" }
+```
+
+The first snapshot of a Pending payment order marks Payment Start. From then
+on:
+
+- the order is no longer editable;
+- its stock is reduced once (`wc_maybe_reduce_stock_levels`), and the Store
+  API's checkout reservation is released.
+
+`gq_payments` orders are never cancelled by WooCommerce's unpaid-order timer
+(ADR 0005). The route is added to gq-config's restricted-REST allow-list as
+`/gq-payments/v1/orders/*` (GET).
+
+Order meta (CRUD API only): `_gq_payments_method`,
+`_gq_payments_payment_started_at` (Unix time) and
+`_gq_payments_snapshot_revision` (the revision at Payment Start).
+
 ## Installation
 
 Download `gq-payments-0.0.1.zip` from the GitHub release, upload it through
@@ -103,6 +151,9 @@ emulates the restricted-REST gate, which these options toggle:
 
 - `gq_test_anonymous_rest_mode`: `restricted` turns the gate on.
 - `gq_test_public_rest_routes`: extra allow-list entries.
+
+`gq-test-availability.php` lets tests choose the eligible methods with the
+`gq_test_eligible_methods` option (a JSON array of method IDs).
 
 CI runs the site suite under legacy and HPOS order storage.
 

@@ -64,6 +64,19 @@ describe('hidden gq_payments gateway through the Store API', () => {
     assert.match(refund.stderr, /does not support automatic refunds/);
   });
 
+  test('a zero-total order completes through the normal WooCommerce flow, without the gateway', async () => {
+    const free = await createProduct(site, { price: '0', stock: 5, name: 'Sticker' });
+    const s = await shopperWithCart(free);
+
+    const checkout = await s.checkout();
+
+    assert.equal(checkout.status, 200, checkout.text);
+    const placed = await order(checkout.json.order_id);
+    assert.equal(placed.status, 'processing');
+    assert.equal(placed.payment_method, '');
+    assert.equal(fake.calls.length, 0);
+  });
+
   const eligible = (methods) => site.wpOk('option', 'update', 'gq_test_eligible_methods', JSON.stringify(methods), '--format=json');
   const offered = async (s) => (await s.cart()).json.payment_methods;
 
