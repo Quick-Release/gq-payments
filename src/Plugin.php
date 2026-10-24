@@ -12,6 +12,7 @@ namespace GetQuick\Payments;
 use GetQuick\Payments\Admin\PaymentsPage;
 use GetQuick\Payments\Checkout\Checkout;
 use GetQuick\Payments\Checkout\EnrollmentAvailability;
+use GetQuick\Payments\Order\SnapshotRoute;
 
 /**
  * Wires GQ Payments' modules into WordPress once requirements are met.
@@ -24,6 +25,7 @@ final class Plugin {
 	public function boot(): void {
 		$availability = new EnrollmentAvailability();
 		( new Checkout( $availability ) )->register();
+		( new SnapshotRoute() )->register();
 
 		if ( is_admin() ) {
 			( new PaymentsPage() )->register();
