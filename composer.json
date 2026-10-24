@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "wordpress-plugin",
   "license": "proprietary",
-  "description": "Payment provider integration for GETQUICK sites.",
+  "description": "Connects WooCommerce checkout to GETQUICK's Payment Service.",
   "homepage": "https://getquick.io",
   "authors": [
     {
@@ -16,12 +16,18 @@
   },
   "require-dev": {
     "dealerdirect/phpcodesniffer-composer-installer": "^1.2",
+    "phpunit/phpunit": "^13",
     "squizlabs/php_codesniffer": "^3.13",
     "wp-coding-standards/wpcs": "^3.3"
   },
   "autoload": {
     "psr-4": {
       "GetQuick\\Payments\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "GetQuick\\Payments\\Tests\\": "tests/php/"
     }
   },
   "extra": {
@@ -42,7 +48,8 @@
     "check": [
       "@composer validate --strict --no-check-version",
       "@lint"
-    ]
+    ],
+    "test": "phpunit"
   },
   "archive": {
     "exclude": [
@@ -53,7 +60,9 @@
       "!/README.md",
       "!/LICENSE",
       "!/composer.json",
-      "!/src"
+      "!/src",
+      "!/uninstall.php",
+      "!/assets"
     ]
   }
 }

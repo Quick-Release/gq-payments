@@ -1,0 +1,84 @@
+<?php
+/**
+ * The hidden gq_payments WooCommerce gateway.
+ *
+ * @package GetQuick\Payments
+ */
+
+declare(strict_types=1);
+
+namespace GetQuick\Payments\Checkout;
+
+use GetQuick\Payments\Connection\Availability;
+use GetQuick\Payments\Order\OrderMeta;
+use WC_Order;
+use WC_Payment_Gateway;
+
+/**
+ * Creates pending orders for the Payment Service to collect (ADR 0003).
+ *
+ * It has no settings and no refunds support, and it never calls the Payment Service:
+ * the storefront starts payment, and the service then pulls the Order Snapshot.
+ */
+final class Gateway extends WC_Payment_Gateway {
+
+	public const ID = 'gq_payments';
+
+	/**
+	 * Whether $order is a gq_payments order: one paid (or to be paid) through this gateway.
+	 *
+	 * @param mixed $order Order, or anything else (which is never one).
+	 */
+	public static function owns( mixed $order ): bool {
+		return $order instanceof WC_Order && self::ID === $order->get_payment_method();
+	}
+
+	/**
+	 * Connection state and Eligible Methods.
+	 *
+	 * @var Availability
+	 */
+	private Availability $checkoutAvailability;
+
+	/**
+	 * Builds the gateway.
+	 *
+	 * @param Availability $availability Connection state and Eligible Methods.
+	 */
+	public function __construct( Availability $availability ) {
+		$this->checkoutAvailability = $availability;
+		$this->id                   = self::ID;
+		$this->method_title         = __( 'GETQUICK Payments', 'gq-payments' );
+		$this->method_description   = __( 'Payments collected by the GETQUICK Payment Service through the storefront checkout.', 'gq-payments' );
+		$this->title                = $this->method_title;
+		$this->has_fields           = false;
+		$this->supports             = [ 'products' ];
+		// The Payment Service owns which methods are offered; WooCommerce's own toggle does not apply.
+		$this->enabled = 'yes';
+	}
+
+	/**
+	 * Available while the site is connected and at least one method is eligible and switched on.
+	 */
+	public function is_available(): bool {
+		return [] !== $this->checkoutAvailability->eligibleMethodIds();
+	}
+
+	/**
+	 * Leaves the order in Pending payment, titled with the chosen method; calls nothing external.
+	 *
+	 * @param int $order_id Order ID.
+	 * @return array{result: string, redirect: string}
+	 */
+	public function process_payment( $order_id ): array {
+		$order = wc_get_order( $order_id );
+		if ( $order ) {
+			$order->set_payment_method_title( Methods::title( (string) $order->get_meta( OrderMeta::METHOD ) ) ?? $this->title );
+			$order->save();
+		}
+		return [
+			'result'   => 'success',
+			'redirect' => '',
+		];
+	}
+}

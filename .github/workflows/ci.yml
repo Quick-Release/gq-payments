@@ -1,4 +1,4 @@
-name: PHP checks
+name: Checks
 
 on:
   pull_request:
@@ -25,5 +25,53 @@ jobs:
           coverage: none
       - run: composer install --no-interaction --prefer-dist
       - run: composer check
-      - run: php -l gq-payments.php && php -l src/Plugin.php
+      - run: composer test
+      - name: Lint shipped PHP
+        run: find gq-payments.php uninstall.php src -name '*.php' -print0 | xargs -0 -n1 php -l
       - run: composer audit
+
+  wordpress:
+    # Self-contained: WordPress and WooCommerce come from wordpress.org; the private
+    # getquick-ecommerce and gq-config plugins are replaced by stubs in tests/e2e, and
+    # the Payment Service by the in-repo fake (tests/e2e/fake-service) with test keys.
+    name: wordpress (${{ matrix.storage }} order storage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        storage: [legacy, hpos]
+    env:
+      GQ_TEST_STORAGE: ${{ matrix.storage }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Signing vectors (Node fake Payment Service)
+        run: npm run test:node
+      - name: Start WordPress
+        run: npm run env:start
+      - name: Select ${{ matrix.storage }} order storage
+        run: npm run env:storage:${{ matrix.storage }}
+      - name: Site HTTP and lifecycle tests
+        run: npm run test:e2e
+      # Network activation does not depend on order storage; run it once.
+      - name: Multisite tests
+        if: matrix.storage == 'legacy'
+        run: |
+          npm run env:start:multisite
+          npm run test:e2e:multisite
+      - run: npx playwright install --with-deps chromium
+      - name: Admin screen tests
+        run: npm run test:browser
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.storage }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

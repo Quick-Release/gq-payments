@@ -1,12 +1,268 @@
 # GQ Payments
 
-Payment provider integration for GETQUICK WordPress sites.
+Connects WooCommerce checkout on GETQUICK sites to GETQUICK's private Payment
+Service.
 
-Version **0.0.1** is the initial scaffold. It loads the plugin lifecycle entry
-point but does not process payments, register gateways or webhooks, store
-credentials, or change orders. Provider selection and integration are pending.
+GQ Payments is a thin adapter (ADR 0001). A WordPress administrator connects
+the site with a Connection Request on **GETQUICK → Payments**, and an Operator
+approves its Site Enrollment. Shoppers check out through the headless
+storefront with a hidden `gq_payments` gateway. The Payment Service pulls a
+signed Order Snapshot (Payment Start, which locks the order and holds its
+stock) and sends the order's signed, versioned Payment State. The plugin
+mirrors that state: it completes paid orders, cancels expired ones, flags Late
+Payments for review and records refunds made in Banquinha. WordPress never
+holds payment credentials, never decides whether a payment happened and never
+moves money. Vocabulary: [GLOSSARY.md](GLOSSARY.md); decisions:
+[docs/adr](docs/adr).
 
-Requires WordPress 7.0+ and PHP 8.4.1+, matching the newer GQ plugins.
+Requires WordPress 7.0+ and PHP 8.4.1+, matching the newer GQ plugins, plus
+WooCommerce 10.9+ and GQ eCommerce (`Requires Plugins: woocommerce,
+getquick-ecommerce`). GQ Payments is single-site only: network activation is
+refused. Its screen is **GETQUICK → Payments** (gq-config's menu), or
+**Settings → Payments** when that menu is absent, and needs the
+`manage_woocommerce` capability.
+
+Uninstalling deletes the plugin's `gq_payments_*` options and transients and
+its WooCommerce gateway settings. Order meta and order notes are kept as
+payment history, and uninstall contacts no external service.
+
+## Signed transport and configuration
+
+All traffic between the site and the Payment Service is signed with Ed25519
+in both directions (ADR 0002). Each request carries the `GQ-Payments-Key-Id`,
+`GQ-Payments-Site-Id`, `GQ-Payments-Timestamp` and `GQ-Payments-Request-Id`
+headers, plus an RFC 9530 `Content-Digest` and `GQ-Payments-Signature`. The
+signature covers a `gq-payments-v1` canonical string. Requests are accepted
+within ±5 minutes, and each request ID only once. Responses to the site's own
+calls are not signed in v1. Those calls go over HTTPS only, with redirects off
+and a 1 MiB response limit.
+
+| Setting | Source | Notes |
+|---|---|---|
+| `GQ_PAYMENTS_SERVICE_URL` | constant, then environment variable | Overrides the release default. Never an option. |
+| `GQ_PAYMENTS_SITE_KEY` | constant, then environment variable | Base64 Ed25519 secret key (64 bytes) or seed (32 bytes). |
+| `GQ_PAYMENTS_SITE_KEY_NEXT` | constant, then environment variable | Optional replacement Site Key, same format. Used only by a replacement Connection Request (see Connection). |
+| `GQ_PAYMENTS_SERVICE_PUBLIC_KEYS` | constant only | Array of key ID ⇒ `['environment' => 'sandbox'\|'production', 'public_key' => '<base64 32 bytes>']`. It replaces the shipped Service Keys. |
+
+> **Placeholders:** the real Payment Service keys and address don't exist
+> yet. The release ships placeholder current and next Service Keys for each
+> environment (`placeholder-*`), and they verify nothing. The default service
+> URL is empty, so outbound calls fail as unreachable. Until a release ships
+> the real values, set them with the constants above.
+
+The plugin stores seen request IDs in the `{prefix}gq_payments_replay` table,
+which uninstall drops.
+
+## Connection
+
+On **GETQUICK → Payments** an administrator creates a **Connection Request**.
+The site sends its URL, the Site Key's public key and a short fingerprint
+(`SHA256:xxxx:xxxx:xxxx:xxxx`) to the Payment Service, and the screen shows
+them so they can be passed to GETQUICK. An Operator approves the Site
+Enrollment outside WordPress. A replacement Connection Request creates a
+pending key, which replaces the active key only once the service reports the
+new enrollment connected. No button deletes the key or disconnects the site.
+
+When `GQ_PAYMENTS_SITE_KEY` is not set, keys are generated into the
+`gq_payments_site_keys` option (autoload off), and the screen warns that this
+is the weaker choice. When it is set (constant mode), no private key is written
+to the database: the option records only each key's key ID, public key and
+fingerprint, and the site signs with whichever configured constant has the
+enrolled public key.
+
+To replace a key in constant mode:
+
+1. Set the new key in `GQ_PAYMENTS_SITE_KEY_NEXT`, keeping `GQ_PAYMENTS_SITE_KEY`
+   as it is.
+2. Create a replacement Connection Request. It carries the `NEXT` key, and the
+   current key stays in use while it awaits approval.
+3. Once an Operator approves it and the site sees the enrollment connected, the
+   `NEXT` key becomes active.
+4. You may then move the new key to `GQ_PAYMENTS_SITE_KEY` and remove
+   `GQ_PAYMENTS_SITE_KEY_NEXT`.
+
+Changing the constants never makes another key active before approval. If the
+enrolled key is in neither constant any more, the site stops signing as that
+enrollment and the screen says so until a Connection Request for the
+configured key is approved.
+
+Health (connected, awaiting approval, disconnected or unreachable), the
+environment and the **Eligible Methods** come from a signed status call and
+are cached for 60 seconds (`gq_payments_connection`). The Payment Service owns
+the environment and the method toggles; turning a method on or off goes
+through the signed site-configuration call. Error messages are fixed texts
+that never repeat what the service said. The Banquinha link carries no
+credentials or identity.
+
+| Call (site → service, signed) | Body | Reply |
+|---|---|---|
+| `POST /v1/site/enrollments` (signed by the new key, empty key ID) | `site_id`, `site_url`, `public_key`, `fingerprint` | `key_id`, `status` |
+| `GET /v1/site/status` | — | `status` (`connected`, `awaiting_approval`, `disconnected`, `revoked`), `environment`, `methods` |
+| `POST /v1/site/configuration` | `methods: { <id>: bool }` | `methods` |
+
+Each method is `{ id, label, status: 'eligible'|'unavailable', enabled }`.
+The gateway asks `GetQuick\Payments\Connection\Connection::fromWordPress()`,
+which implements `Connection\Availability`: `isConnected()`,
+`isMethodEligible( $id )` (connected, eligible and switched on) and
+`eligibleMethodIds()`. While the service is unreachable, the last reported
+answer stands. Signed Payment Service requests are verified whatever the
+connection state, so existing orders keep receiving Payment State.
+
+## Checkout and Order Snapshot
+
+The `gq_payments` gateway is used only through the Store API (ADR 0003). The
+storefront sends `payment_method: "gq_payments"` to `POST /wc/store/v1/checkout`,
+with the chosen method in `payment_data` as `{ "key": "gq_method", "value":
+"mbway" }`. The gateway:
+
+- leaves the order in Pending payment, titled with the method, and calls no
+  external service;
+- has no refunds support and no settings;
+- is hidden from classic checkout and pay-for-order pages, and registers no
+  block checkout integration;
+- is available only while the site is connected and at least one method is
+  eligible. A checkout with a missing or ineligible method gets a 400.
+
+Availability comes from `Connection\Availability` (see Connection). The
+gateway is available while the site is connected and at least one method is
+eligible and switched on, and a checkout must name one of those methods.
+The order's payment method title is the method's brand name (`MB WAY`,
+`Multibanco`), or the gateway's title for other methods.
+
+The Payment Service then fetches
+`GET /wp-json/gq-payments/v1/orders/{id}/snapshot?key={order key}`, signed
+(`Transport::authorize`). Unknown orders, wrong keys and orders of other
+gateways all get the same 404. The body holds totals only, as decimal strings:
+
+```json
+{ "order_id": 123, "currency": "EUR", "status": "pending",
+  "totals": { "items_net": "18.00", "items_tax": "4.14", "shipping_net": "5.00",
+              "shipping_tax": "1.15", "fees_net": "0.00", "fees_tax": "0.00", "total": "28.29" },
+  "snapshot_revision": "<sha256 hex of order ID, currency and totals>" }
+```
+
+The first snapshot of a Pending payment order marks Payment Start. From then
+on:
+
+- the order is no longer editable;
+- its stock is reduced once (`wc_maybe_reduce_stock_levels`), and the Store
+  API's checkout reservation is released.
+
+Snapshots and Payment State messages for one order take the same per-order
+MySQL named lock, so concurrent first snapshots mark Payment Start, and reduce
+stock, exactly once. A snapshot that waited 10 s for the lock gets **503**
+`gq_payments_busy`; retry it.
+
+From Payment Start, `gq_payments` orders are never cancelled by WooCommerce's
+unpaid-order timer: the Payment Service owns their expiry (ADR 0005). Before
+Payment Start, WooCommerce's usual unpaid-order cancellation still applies to
+abandoned checkouts. A cancelled order, or one that left Pending payment before
+Payment Start, refuses the snapshot with **409** `gq_payments_order_not_payable`,
+so no payment can start on it. The route is added to gq-config's restricted-REST allow-list as
+`/gq-payments/v1/orders/*` (GET).
+
+Order meta (CRUD API only): `_gq_payments_method` (the method chosen at
+checkout).
+
+Order meta written at Payment Start: `_gq_payments_payment_started_at` (Unix
+time), `_gq_payments_snapshot_revision` and `_gq_payments_snapshot_total` (the
+revision and total at Payment Start: the amount the service collects).
+
+## Payment State
+
+The Payment Service sends each order's complete, versioned Payment State
+(ADR 0004) to `POST /wp-json/gq-payments/v1/orders/{id}/payment-state`, signed
+(`Transport::authorize`, whatever the connection state). The body is JSON:
+
+```json
+{ "version": 3, "state": "paid", "refunded_total": "0.00", "method": "mbway",
+  "attempt_id": "att_123", "snapshot_revision": "<64 hex>" }
+```
+
+| Field | Rule |
+|---|---|
+| `version` | Integer ≥ 1. Increases with every change. |
+| `state` | `pending`, `paid`, `expired` or `late_payment`. |
+| `refunded_total` | Cumulative verified refunded amount, a decimal string with at most the store's price decimals. Must be `0` unless the state is `paid` or `late_payment`, never decreases, and never exceeds the amount collected (when the revision is known). |
+| `method` | Method ID, `[a-z0-9_-]{1,64}`. |
+| `attempt_id` | The service's opaque attempt ID, `[A-Za-z0-9_.:-]{0,128}`; required for `paid` and `late_payment`, otherwise optional (`null` or `""`). |
+| `snapshot_revision` | Snapshot Revision the payment was collected against. |
+
+Replies:
+
+- **200** `{ "order_id", "version", "applied" }`. `version` is the order's last
+  applied version. A repeated or older version is acknowledged with
+  `applied: false` and has no effect, so retries and reordering converge.
+- **400** `gq_payments_invalid_payment_state`, with `data.field` naming the
+  offending field. Nothing changed; don't retry the same message.
+- **401** unsigned, forged, stale or replayed. **404** unknown order or another
+  gateway's order. **409** `gq_payments_payment_not_started` (no snapshot was
+  taken yet). **503** `gq_payments_busy` (another message for the order held
+  its lock for 10 s; retry).
+
+Messages for one order are applied one at a time (a MySQL named lock), and only
+when their version is newer than the stored one:
+
+| State | Order Pending payment | Order cancelled | Any other status |
+|---|---|---|---|
+| `pending` | note only | note only | note only |
+| `paid` | `payment_complete( attempt_id )`: Processing or Completed, the usual WooCommerce emails, attempt ID as transaction ID | recorded as a Late Payment | note only, status unchanged |
+| `expired` | cancelled; WooCommerce restores the stock held since Payment Start and sends its admin "Cancelled order" email | note only | note only, not cancelled |
+| `late_payment` | Late Payment | Late Payment | Late Payment |
+
+- **Late Payment:** the status never changes and `payment_complete()` is never
+  called. The order gets the `_gq_payments_late_payment` flag, a note starting
+  "Payment received after cancellation — review in Banquinha", and an error
+  notice on its edit screen (HPOS and legacy).
+- **Revision mismatch:** a `paid` state whose `snapshot_revision` no longer
+  matches the order (it was changed after Payment Start, for example through
+  the REST API) is still applied, with a note "collected X, current total Y —
+  review".
+- **Status sources:** every applied Payment State is noted with its version and
+  attempt ID. Any other status change on a `gq_payments` order (admin screen,
+  REST API, CLI, other plugins) gets a "Status set manually to … — not payment
+  evidence" note. The Store API's own draft-to-pending step is not noted.
+- **Refunds:** each applied version whose `refunded_total` exceeds the sum of
+  the order's WooCommerce refunds creates one WooCommerce refund for the
+  increase only (`Order\VerifiedRefunds`), with no line items,
+  `refund_payment=false` and `restock_items=false`, the reason "Refund made in
+  Banquinha." and a note "Refund of X verified by the Payment Service …". A
+  repeated or older version, or a newer one with the same total, creates
+  none, so WooCommerce's refunded total always equals the latest verified one.
+  Stock is never restored. As usual in WooCommerce, the customer gets the
+  partially refunded or refunded email, and a fully refunded order moves to
+  Refunded; that status change comes from Payment State and is not noted as
+  manual. A Late Payment never changes the order status, so a cancelled order
+  whose Late Payment is refunded stays Cancelled (the refund and its note are
+  still recorded). If WooCommerce
+  refuses the refund (for example, the order total was lowered below the
+  verified amount), the order gets a review note instead, and the next
+  applied version retries the difference.
+
+The route shares the `/gq-payments/v1/orders/*` entry on gq-config's
+restricted-REST allow-list (GET and POST).
+
+Order meta written by Payment State: `_gq_payments_state_version` (last
+applied version), `_gq_payments_attempt_id` (last attempt ID received),
+`_gq_payments_refunded_total` (last verified refunded total) and
+`_gq_payments_late_payment` (`yes`). No provider references, payer details or
+raw payloads are stored. All order meta goes through the WooCommerce CRUD API,
+so HPOS and legacy storage behave the same, and uninstall keeps it.
+
+### Refunds outside Payment State
+
+Refunds on `gq_payments` orders are made in Banquinha. WooCommerce refunds
+created any other way are refused: the plugin throws in
+`woocommerce_create_refund`, so WooCommerce deletes the refund and returns
+"Refunds for this order are made in Banquinha. …". That covers the order
+screen's AJAX refund, the REST API (`POST /wc/v3/orders/<id>/refunds`), other
+plugins calling `wc_create_refund()`, and the automatic refund WooCommerce
+creates when someone sets the status to Refunded by hand (the status still
+changes, with the usual "not payment evidence" note, but no refund is
+recorded and no stock is restored). On the order screen, the Refund button is
+replaced by that message and an "Open Banquinha" link. The gateway declares no
+`refunds` support, so "Refund via gateway" never appears. Refunds on orders of
+other gateways are not affected.
 
 ## Installation
 
@@ -22,15 +278,80 @@ repositories (or its existing GETQUICK registry) and require
 
 ```sh
 composer install
-composer check
+composer check   # WordPress coding standards
+composer test    # PHPUnit, no WordPress
 ```
 
-`gq-payments.php` owns the WordPress metadata and bootstrap.
-`src/Plugin.php` is the service registration entry point, under the
-`GetQuick\Payments` PSR-4 namespace. PHP follows WordPress coding standards
+Integration and admin tests run against disposable WordPress sites (Docker and
+Node 24 required). WordPress and WooCommerce come from wordpress.org; the
+private `getquick-ecommerce` plugin and gq-config menu are replaced by stubs in
+`tests/e2e/stubs` and `tests/e2e/mu-plugins`, so no private repository is
+needed.
+
+```sh
+npm ci
+npm run env:start             # single site on http://localhost:8988 (admin/password)
+npm run env:start:multisite   # multisite on http://localhost:8990
+npm run test:node             # signing vectors on the Node side (no WordPress)
+npm run env:storage:hpos      # or env:storage:legacy (WooCommerce order storage)
+npm run test:e2e              # site lifecycle and HTTP surface (node --test)
+npm run test:e2e:multisite
+npx playwright install chromium
+npm run test:browser          # admin screen (Playwright)
+npm run env:destroy && npm run env:destroy:multisite
+```
+
+`tests/fixtures/signing.json` holds **test-only** keys and signing vectors:
+genuine requests in both directions (including current and next Service Keys)
+and `rejections`, requests every verifier must refuse (tampered body, wrong
+key, expired timestamp, replayed request ID, next-key rotation misuse).
+PHPUnit (`tests/php`) and the fake Payment Service's verifier
+(`tests/e2e/fake-service`, checked by `npm run test:node`) both consume them,
+which proves the two sides agree on the wire format.
+
+The fake runs inside the Node test process, on `https://0.0.0.0:9443` with a
+test-only certificate. Start it with `startFakeService()`. It gives tests
+three tools:
+
+- **Recording:** it verifies and records the site's signed calls in `calls`.
+- **Scripted replies:** `respond(method, path, reply)` sets how it answers.
+- **Signed calls into the site:** `callSite()`, `signRequest()` and `send()`
+  sign requests with the test Service Keys and send them.
+
+The test mu-plugin also records every WooCommerce email sent (ID, order and
+recipient) in the `gq_test_emails` option, so tests can assert which emails
+went out without a mail catcher.
+
+The test mu-plugin `tests/e2e/mu-plugins/gq-test-env.php` points the site at
+`https://host.docker.internal:9443` and defines the test keys. It relaxes the
+safe-request checks only for that host. It also registers `gq-test/v1`
+fixture routes guarded by `Transport::authorize`.
+
+The gq-config stub, `gq-config-stub.php`, emulates the GETQUICK menu. It also
+emulates the restricted-REST gate, which these options toggle:
+
+- `gq_test_anonymous_rest_mode`: `restricted` turns the gate on.
+- `gq_test_public_rest_routes`: extra allow-list entries.
+
+CI runs the site suite under legacy and HPOS order storage.
+
+To run a second environment alongside the default one, put the ports in a
+git-ignored `.wp-env.override.json`, for example
+`{ "port": 8890, "config": { "GQ_TEST_FAKE_SERVICE_PORT": 9444 } }`, and run the
+tests with `WP_BASE_URL=http://localhost:8890 GQ_TEST_FAKE_SERVICE_PORT=9444`.
+
+Run the npm scripts from the repository root: wp-env resolves the multisite
+config's local paths against the working directory. Recreate the multisite
+environment (destroy, then start) after changing its config; restarting it
+in place can drop its multisite constants.
+
+`gq-payments.php` owns the WordPress metadata, the requirements gate and the
+bootstrap, including a PSR-4 fallback autoloader for standalone installs.
+`src/Plugin.php` wires the modules, under the `GetQuick\Payments` PSR-4
+namespace. PHP follows WordPress coding standards
 with the same namespaced class conventions as GQ Design.
 
-No frontend build or runtime dependencies are needed for this scaffold.
+There is no frontend build; Node is used only for tests.
 
 ## Releases
 

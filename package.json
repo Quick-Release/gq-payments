@@ -1,0 +1,25 @@
+{
+  "name": "gq-payments-tests",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "env:start": "wp-env start",
+    "env:stop": "wp-env stop",
+    "env:destroy": "wp-env destroy --force",
+    "env:storage:hpos": "node tests/e2e/select-storage.mjs hpos",
+    "env:storage:legacy": "node tests/e2e/select-storage.mjs legacy",
+    "test:node": "node --test tests/node/*.test.mjs",
+    "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.test.mjs",
+    "test:browser": "playwright test",
+    "env:start:multisite": "wp-env --config tests/e2e/multisite/.wp-env.json start",
+    "env:destroy:multisite": "wp-env --config tests/e2e/multisite/.wp-env.json destroy --force",
+    "test:e2e:multisite": "node --test --test-concurrency=1 tests/e2e/multisite/*.test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@wordpress/env": "12.0.0"
+  }
+}

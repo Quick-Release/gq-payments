@@ -3,6 +3,7 @@
     <description>WordPress Core, Extra and Docs for shipped plugin PHP.</description>
 
     <file>gq-payments.php</file>
+    <file>uninstall.php</file>
     <file>src</file>
     <arg name="extensions" value="php"/>
     <arg name="basepath" value="."/>
