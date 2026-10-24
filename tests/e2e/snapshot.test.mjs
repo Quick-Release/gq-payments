@@ -112,3 +112,66 @@ describe('signed Order Snapshot', () => {
     assert.equal(foreign.json.code, 'gq_payments_unauthorized');
   });
 });
+
+describe('Payment Start', () => {
+  const wcOrder = async (id) => JSON.parse(await site.wpOk('wc', 'shop_order', 'get', String(id), '--user=admin', '--format=json'));
+  const stock = async (product) => Number(await site.wpOk('wc', 'product', 'get', product, '--field=stock_quantity', '--user=admin'));
+
+  test('locks the order: it stays Pending payment but is no longer editable', async () => {
+    const order = await placeOrder({ coupon: null });
+    assert.equal((await wcOrder(order.id)).is_editable, true, 'editable before Payment Start');
+
+    const response = await snapshot(order);
+
+    assert.equal(response.status, 200, response.text);
+    const locked = await wcOrder(order.id);
+    assert.equal(locked.status, 'pending');
+    assert.equal(locked.is_editable, false);
+  });
+
+  test('reduces stock exactly once, however often the snapshot is fetched', async () => {
+    const order = await placeOrder({ quantity: 2, stock: 5, coupon: null });
+    assert.equal(await stock(order.product), 5, 'checkout alone only reserves stock');
+
+    assert.equal((await snapshot(order)).status, 200);
+    assert.equal(await stock(order.product), 3);
+
+    assert.equal((await snapshot(order)).status, 200);
+    assert.equal((await snapshot(order)).status, 200);
+    assert.equal(await stock(order.product), 3);
+  });
+
+  test("releases the checkout's stock reservation so held stock is not counted twice", async () => {
+    const order = await placeOrder({ quantity: 2, stock: 5, coupon: null });
+    assert.equal((await snapshot(order)).status, 200);
+
+    // 3 left in stock: another shopper can take all 3 only if the 2 reserved at checkout were released.
+    const other = await shopper();
+    const added = await other.addItem(order.product, 3);
+    assert.equal(added.status, 201, added.text);
+    const checkout = await other.checkout({ payment: mbway });
+    assert.equal(checkout.status, 200, checkout.text);
+  });
+});
+
+describe('Snapshot Revision', () => {
+  test('is stable while totals are unchanged and changes when they change', async () => {
+    const order = await placeOrder();
+    const first = await snapshot(order);
+    const again = await snapshot(order);
+    assert.equal(again.json.snapshot_revision, first.json.snapshot_revision);
+
+    // A fee added after Payment Start (e.g. through the REST API, which ignores the editing lock).
+    await site.wpOk(
+      'eval',
+      `$order = wc_get_order( ${order.id} ); $fee = new WC_Order_Item_Fee(); $fee->set_name( 'Gift wrap' ); $fee->set_total( '2.00' ); $fee->set_tax_status( 'taxable' ); $order->add_item( $fee ); $order->calculate_totals(); $order->save();`
+    );
+    const changed = await snapshot(order);
+
+    assert.notEqual(changed.json.snapshot_revision, first.json.snapshot_revision);
+    // €2.00 fee + 23% VAT €0.46: total €28.29 → €30.75.
+    assert.equal(changed.json.totals.fees_net, '2.00');
+    assert.equal(changed.json.totals.fees_tax, '0.46');
+    assert.equal(changed.json.totals.total, '30.75');
+  });
+});

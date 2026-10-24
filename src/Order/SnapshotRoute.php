@@ -69,6 +69,29 @@ final class SnapshotRoute {
 			return new WP_Error( 'gq_payments_order_not_found', __( 'Order not found.', 'gq-payments' ), [ 'status' => 404 ] );
 		}
 
-		return new WP_REST_Response( OrderSnapshot::of( $order ) );
+		$snapshot = OrderSnapshot::of( $order );
+		$this->markPaymentStart( $order, $snapshot['snapshot_revision'] );
+
+		return new WP_REST_Response( $snapshot );
+	}
+
+	/**
+	 * The first snapshot of a Pending payment order marks Payment Start and holds its stock (ADR 0005).
+	 *
+	 * @param WC_Order $order    Order.
+	 * @param string   $revision Snapshot Revision just served.
+	 */
+	private function markPaymentStart( WC_Order $order, string $revision ): void {
+		if ( ! $order->has_status( 'pending' ) || '' !== (string) $order->get_meta( OrderMeta::PAYMENT_STARTED_AT ) ) {
+			return;
+		}
+		$order->update_meta_data( OrderMeta::PAYMENT_STARTED_AT, (string) time() );
+		$order->update_meta_data( OrderMeta::SNAPSHOT_REVISION, $revision );
+		$order->save();
+
+		// Sets the order's stock-reduced flag, so payment_complete() won't reduce again and cancelling restores it.
+		wc_maybe_reduce_stock_levels( $order->get_id() );
+		// The Store API reserved this stock at checkout; it is now reduced, so drop the reservation.
+		wc_release_stock_for_order( $order );
 	}
 }
