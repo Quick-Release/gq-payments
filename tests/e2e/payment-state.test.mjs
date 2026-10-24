@@ -5,73 +5,28 @@ import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { startFakeService, vectors } from './fake-service/fake-service.mjs';
 import { connectSite, forgetConnection } from './lib/connect.mjs';
+import { emails, mbway, notes, paymentOrders, stock, wcOrder } from './lib/orders.mjs';
 import { baseline, singleSite as site } from './lib/site.mjs';
 import { createProduct, shopper } from './lib/store.mjs';
 
 let fake;
 let connection;
+let orders;
 
 before(async () => {
   fake = await startFakeService();
   await baseline();
   connection = await connectSite(fake);
   await site.wpOk('option', 'update', 'woocommerce_currency', 'EUR');
+  orders = paymentOrders(fake, connection);
 });
 after(async () => {
   await forgetConnection();
   await fake?.close();
 });
 
-const mbway = { method: 'gq_payments', data: { gq_method: 'mbway' } };
-
-/** A gq_payments order past Payment Start: 2 × €10.00 from a product with 5 in stock (3 left). */
-async function startedOrder() {
-  const product = await createProduct(site, { price: '10.00', stock: 5 });
-  const s = await shopper();
-  const added = await s.addItem(product, 2);
-  assert.equal(added.status, 201, added.text);
-  const checkout = await s.checkout({ payment: mbway });
-  assert.equal(checkout.status, 200, checkout.text);
-  const order = { id: checkout.json.order_id, key: checkout.json.order_key, product };
-  const snapshot = await fake.callSite({
-    method: 'GET',
-    route: `/gq-payments/v1/orders/${order.id}/snapshot`,
-    query: { key: order.key },
-    siteId: connection.siteId,
-  });
-  assert.equal(snapshot.status, 200, snapshot.text);
-  order.revision = snapshot.json.snapshot_revision;
-  await site.wpOk('option', 'delete', 'gq_test_emails');
-  return order;
-}
-
-/** The Payment Service sends the order's Payment State. */
-const sendState = (order, state, options = {}) =>
-  fake.callSite({
-    method: 'POST',
-    route: `/gq-payments/v1/orders/${order.id}/payment-state`,
-    json: {
-      version: 1,
-      state: 'pending',
-      refunded_total: '0.00',
-      method: 'mbway',
-      attempt_id: 'att_0001',
-      snapshot_revision: order.revision,
-      ...state,
-    },
-    siteId: connection.siteId,
-    ...options,
-  });
-
-const wcOrder = async ({ id }) => JSON.parse(await site.wpOk('wc', 'shop_order', 'get', String(id), '--user=admin', '--format=json'));
-const stock = async ({ product }) => Number(await site.wpOk('wc', 'product', 'get', product, '--field=stock_quantity', '--user=admin'));
-const notes = async ({ id }) =>
-  JSON.parse(await site.wpOk('eval', `echo wp_json_encode( array_map( fn( $n ) => $n->content, wc_get_order_notes( [ 'order_id' => ${Number(id)}, 'order' => 'ASC' ] ) ) );`));
-/** WooCommerce email IDs sent for this order since Payment Start, in order. */
-const emails = async ({ id }) => {
-  const log = JSON.parse((await site.wp('option', 'get', 'gq_test_emails', '--format=json')).stdout || '[]');
-  return log.filter((email) => email.order_id === id).map((email) => email.id);
-};
+const startedOrder = () => orders.startedOrder();
+const sendState = (...args) => orders.sendState(...args);
 
 describe('paid', () => {
   test('completes a pending order with the attempt ID as transaction ID, sends the usual emails and keeps the held stock', async () => {
@@ -359,7 +314,7 @@ describe('message validation', () => {
     assert.deepEqual(await stateNotes(order), []);
   });
 
-  test('the cumulative refunded total never decreases nor exceeds the amount collected; no WooCommerce refund is created', async () => {
+  test('the cumulative refunded total never decreases nor exceeds the amount collected', async () => {
     const order = await startedOrder();
     assert.equal((await sendState(order, { version: 1, state: 'paid' })).status, 200);
 
@@ -368,7 +323,7 @@ describe('message validation', () => {
     await rejects(order, { version: 3, state: 'paid', refunded_total: '4.99' }, 'refunded_total');
 
     const current = await wcOrder(order);
-    assert.deepEqual(current.refunds, []);
+    assert.deepEqual(current.refunds.map((refund) => refund.total), ['-5.00'], 'only the accepted total was mirrored');
     assert.equal(current.status, 'processing');
   });
 
