@@ -117,7 +117,11 @@ final class PaymentStateMirror {
 	 * @param PaymentState $state State.
 	 */
 	private function latePayment( WC_Order $order, PaymentState $state ): void {
-		$this->note( $order, $state, __( 'recorded.', 'gq-payments' ) );
+		$order->update_meta_data( OrderMeta::LATE_PAYMENT, 'yes' );
+		$order->add_order_note(
+			__( 'Payment received after cancellation — review in Banquinha. Do not fulfil this order before deciding whether to fulfil or refund it.', 'gq-payments' )
+			. ' ' . self::describe( $state ) . ' ' . __( 'Late Payment recorded; the order status was not changed.', 'gq-payments' )
+		);
 	}
 
 	/**

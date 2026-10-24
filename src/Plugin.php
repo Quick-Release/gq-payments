@@ -9,6 +9,7 @@ declare(strict_types=1);
 
 namespace GetQuick\Payments;
 
+use GetQuick\Payments\Admin\LatePaymentNotice;
 use GetQuick\Payments\Admin\PaymentsPage;
 use GetQuick\Payments\Checkout\Checkout;
 use GetQuick\Payments\Connection\Connection;
@@ -36,6 +37,7 @@ final class Plugin {
 
 		if ( is_admin() ) {
 			( new PaymentsPage() )->register();
+			( new LatePaymentNotice() )->register();
 		}
 	}
 }

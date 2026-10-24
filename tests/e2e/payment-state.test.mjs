@@ -163,3 +163,59 @@ describe('expired', () => {
     assert.ok(!(await notes(order)).some((note) => note.includes('not payment evidence')), 'not noted as a manual change');
   });
 });
+
+describe('late_payment', () => {
+  /** The order's admin edit screen (HPOS or legacy, whichever is active). */
+  const orderScreen = async ({ id }) => {
+    const url = await site.wpOk('eval', `echo wc_get_order( ${Number(id)} )->get_edit_order_url();`);
+    const get = await site.loginAs('admin');
+    const page = await get(new URL(url).pathname + new URL(url).search);
+    assert.equal(page.status, 200, `order screen ${url}`);
+    return page.html;
+  };
+  const LATE_NOTICE = /class="notice notice-error[^"]*gq-payments-late-payment[^"]*"[\s\S]*?Late Payment/;
+
+  test('after expiry: never changes the status or completes payment; flags, notes and shows an admin notice', async () => {
+    const order = await startedOrder();
+    assert.equal((await sendState(order, { version: 1, state: 'pending' })).status, 200);
+    assert.equal((await sendState(order, { version: 2, state: 'expired' })).status, 200);
+    await site.wpOk('option', 'delete', 'gq_test_emails');
+
+    const response = await sendState(order, { version: 3, state: 'late_payment', attempt_id: 'att_late' });
+
+    assert.deepEqual(response.json, { order_id: order.id, version: 3, applied: true });
+    const late = await wcOrder(order);
+    assert.equal(late.status, 'cancelled');
+    assert.equal(late.date_paid, null);
+    assert.equal(late.transaction_id, '');
+    assert.equal(await stock(order), 5, 'stock released at expiry stays released');
+    assert.deepEqual(await emails(order), []);
+    assert.ok(
+      (await notes(order)).some((note) => /^Payment received after cancellation — review in Banquinha\..*version 3.*att_late/s.test(note)),
+      'prominent Late Payment note'
+    );
+    assert.match(await orderScreen(order), LATE_NOTICE);
+  });
+
+  test('a paid state for an order cancelled meanwhile is recorded as a Late Payment, not completed', async () => {
+    const order = await startedOrder();
+    await site.wpOk('wc', 'shop_order', 'update', String(order.id), '--status=cancelled', '--user=admin');
+    await site.wpOk('option', 'delete', 'gq_test_emails');
+
+    assert.equal((await sendState(order, { version: 1, state: 'paid', attempt_id: 'att_after_cancel' })).status, 200);
+
+    const current = await wcOrder(order);
+    assert.equal(current.status, 'cancelled');
+    assert.equal(current.date_paid, null);
+    assert.deepEqual(await emails(order), []);
+    assert.ok((await notes(order)).some((note) => note.startsWith('Payment received after cancellation — review in Banquinha.')));
+    assert.match(await orderScreen(order), LATE_NOTICE);
+  });
+
+  test('no Late Payment notice on an order paid normally', async () => {
+    const order = await startedOrder();
+    assert.equal((await sendState(order, { version: 1, state: 'paid' })).status, 200);
+
+    assert.doesNotMatch(await orderScreen(order), /gq-payments-late-payment/);
+  });
+});
