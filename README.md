@@ -17,6 +17,32 @@ Uninstalling deletes the plugin's `gq_payments_*` options and transients and
 its WooCommerce gateway settings. Order meta and order notes are kept as
 payment history, and uninstall contacts no external service.
 
+## Signed transport and configuration
+
+All traffic between the site and the Payment Service is signed with Ed25519
+in both directions (ADR 0002). Each request carries the `GQ-Payments-Key-Id`,
+`GQ-Payments-Site-Id`, `GQ-Payments-Timestamp` and `GQ-Payments-Request-Id`
+headers, plus an RFC 9530 `Content-Digest` and `GQ-Payments-Signature`. The
+signature covers a `gq-payments-v1` canonical string. Requests are accepted
+within ±5 minutes, and each request ID only once. Responses to the site's own
+calls are not signed in v1. Those calls go over HTTPS only, with redirects off
+and a 1 MiB response limit.
+
+| Setting | Source | Notes |
+|---|---|---|
+| `GQ_PAYMENTS_SERVICE_URL` | constant, then environment variable | Overrides the release default. Never an option. |
+| `GQ_PAYMENTS_SITE_KEY` | constant, then environment variable | Base64 Ed25519 secret key (64 bytes) or seed (32 bytes). |
+| `GQ_PAYMENTS_SERVICE_PUBLIC_KEYS` | constant only | Array of key ID ⇒ `['environment' => 'sandbox'\|'production', 'public_key' => '<base64 32 bytes>']`. It replaces the shipped Service Keys. |
+
+> **Placeholders:** the real Payment Service keys and address don't exist
+> yet. The release ships placeholder current and next Service Keys for each
+> environment (`placeholder-*`), and they verify nothing. The default service
+> URL is empty, so outbound calls fail as unreachable. Until a release ships
+> the real values, set them with the constants above.
+
+The plugin stores seen request IDs in the `{prefix}gq_payments_replay` table,
+which uninstall drops.
+
 ## Installation
 
 Download `gq-payments-0.0.1.zip` from the GitHub release, upload it through
@@ -45,12 +71,40 @@ needed.
 npm ci
 npm run env:start             # single site on http://localhost:8988 (admin/password)
 npm run env:start:multisite   # multisite on http://localhost:8990
+npm run test:node             # signing vectors on the Node side (no WordPress)
+npm run env:storage:hpos      # or env:storage:legacy (WooCommerce order storage)
 npm run test:e2e              # site lifecycle and HTTP surface (node --test)
 npm run test:e2e:multisite
 npx playwright install chromium
 npm run test:browser          # admin screen (Playwright)
 npm run env:destroy && npm run env:destroy:multisite
 ```
+
+`tests/fixtures/signing.json` holds **test-only** keys and signing vectors.
+PHPUnit (`tests/php`) and the fake Payment Service (`tests/e2e/fake-service`)
+both check them, which proves the two sides agree on the wire format.
+
+The fake runs inside the Node test process, on `https://0.0.0.0:9443` with a
+test-only certificate. Start it with `startFakeService()`. It gives tests
+three tools:
+
+- **Recording:** it verifies and records the site's signed calls in `calls`.
+- **Scripted replies:** `respond(method, path, reply)` sets how it answers.
+- **Signed calls into the site:** `callSite()`, `signRequest()` and `send()`
+  sign requests with the test Service Keys and send them.
+
+The test mu-plugin `tests/e2e/mu-plugins/gq-test-env.php` points the site at
+`https://host.docker.internal:9443` and defines the test keys. It relaxes the
+safe-request checks only for that host. It also registers `gq-test/v1`
+fixture routes guarded by `Transport::authorize`.
+
+The gq-config stub, `gq-config-stub.php`, emulates the GETQUICK menu. It also
+emulates the restricted-REST gate, which these options toggle:
+
+- `gq_test_anonymous_rest_mode`: `restricted` turns the gate on.
+- `gq_test_public_rest_routes`: extra allow-list entries.
+
+CI runs the site suite under legacy and HPOS order storage.
 
 Run the npm scripts from the repository root: wp-env resolves the multisite
 config's local paths against the working directory. Recreate the multisite
