@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "type": "wordpress-plugin",
   "license": "proprietary",
-  "description": "Payment provider integration for GETQUICK sites.",
+  "description": "Connects WooCommerce checkout to GETQUICK's Payment Service.",
   "homepage": "https://getquick.io",
   "authors": [
     {

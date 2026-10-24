@@ -1,10 +1,19 @@
 # GQ Payments
 
-Payment provider integration for GETQUICK WordPress sites.
+Connects WooCommerce checkout on GETQUICK sites to GETQUICK's private Payment
+Service.
 
-Version **0.0.1** is the initial scaffold. It loads the plugin lifecycle entry
-point but does not process payments, register gateways or webhooks, store
-credentials, or change orders. Provider selection and integration are pending.
+GQ Payments is a thin adapter (ADR 0001). A WordPress administrator connects
+the site with a Connection Request on **GETQUICK → Payments**, and an Operator
+approves its Site Enrollment. Shoppers check out through the headless
+storefront with a hidden `gq_payments` gateway. The Payment Service pulls a
+signed Order Snapshot (Payment Start, which locks the order and holds its
+stock) and sends the order's signed, versioned Payment State. The plugin
+mirrors that state: it completes paid orders, cancels expired ones, flags Late
+Payments for review and records refunds made in Banquinha. WordPress never
+holds payment credentials, never decides whether a payment happened and never
+moves money. Vocabulary: [GLOSSARY.md](GLOSSARY.md); decisions:
+[docs/adr](docs/adr).
 
 Requires WordPress 7.0+ and PHP 8.4.1+, matching the newer GQ plugins, plus
 WooCommerce 10.9+ and GQ eCommerce (`Requires Plugins: woocommerce,
