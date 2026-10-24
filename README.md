@@ -291,9 +291,13 @@ npm run test:browser          # admin screen (Playwright)
 npm run env:destroy && npm run env:destroy:multisite
 ```
 
-`tests/fixtures/signing.json` holds **test-only** keys and signing vectors.
-PHPUnit (`tests/php`) and the fake Payment Service (`tests/e2e/fake-service`)
-both check them, which proves the two sides agree on the wire format.
+`tests/fixtures/signing.json` holds **test-only** keys and signing vectors:
+genuine requests in both directions (including current and next Service Keys)
+and `rejections`, requests every verifier must refuse (tampered body, wrong
+key, expired timestamp, replayed request ID, next-key rotation misuse).
+PHPUnit (`tests/php`) and the fake Payment Service's verifier
+(`tests/e2e/fake-service`, checked by `npm run test:node`) both consume them,
+which proves the two sides agree on the wire format.
 
 The fake runs inside the Node test process, on `https://0.0.0.0:9443` with a
 test-only certificate. Start it with `startFakeService()`. It gives tests

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
-import { inboundPath, signHeaders, verifyRequest } from '../e2e/fake-service/signing.mjs';
+import { createVerifier, inboundPath, signHeaders, verifyRequest } from '../e2e/fake-service/signing.mjs';
 
 const vectors = JSON.parse(readFileSync(new URL('../fixtures/signing.json', import.meta.url), 'utf8'));
 const secretFor = (signer) => (signer === 'site' ? vectors.site_key : vectors.service_keys[signer]).secret_key;
@@ -54,4 +54,35 @@ describe('signing vectors', () => {
       assert.equal(inboundPath(vector.route, vector.query), vector.path);
     });
   }
+
+  // The fake Payment Service's verifier (replay-aware) against the shared negative vectors,
+  // trusting the fixture Service Keys by key ID, limited to the enrolled environment when known.
+  const trusted = (headers, environment) => {
+    const key = vectors.service_keys[headers['GQ-Payments-Key-Id']];
+    return key && (environment === null || key.environment === environment) ? [key.public_key] : [];
+  };
+  for (const rejection of vectors.rejections) {
+    test(`rejects (${rejection.reason}): ${rejection.name}`, () => {
+      const verifier = createVerifier();
+      if (rejection.replays) {
+        const original = vectors.cases.find((c) => c.name === rejection.replays);
+        const accepted = verifier.verify({ method: original.method, path: original.path, body: original.body, headers: wire(original), publicKeys: trusted(original.headers, rejection.environment), now: now(original) });
+        assert.equal(accepted, true, 'the original is accepted');
+      }
+
+      const verdict = verifier.verify({ ...rejection, publicKeys: trusted(rejection.headers, rejection.environment) });
+
+      assert.equal(verdict, false);
+    });
+  }
+
+  test('the replay-aware verifier accepts every genuine case once', () => {
+    const verifier = createVerifier();
+    for (const vector of vectors.cases) {
+      const publicKeys = [publicFor(vector.signer)];
+      const request = { method: vector.method, path: vector.path, body: vector.body, headers: wire(vector), publicKeys, now: now(vector) };
+      assert.equal(verifier.verify(request), true, vector.name);
+      assert.equal(verifier.verify(request), false, `${vector.name} replayed`);
+    }
+  });
 });

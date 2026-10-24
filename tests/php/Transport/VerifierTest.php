@@ -223,4 +223,28 @@ final class VerifierTest extends TestCase {
 		$this->assertNotNull( self::verifier( environment: 'production' )->verify( $production['method'], $production['path'], $production['body'], self::headers( $production ), self::now( $production ) ) );
 		$this->assertNotNull( self::verifier( environment: 'sandbox' )->verify( $sandbox['method'], $sandbox['path'], $sandbox['body'], self::headers( $sandbox ), self::now( $sandbox ) ) );
 	}
+
+	/**
+	 * @return iterable<string, array{array<string, mixed>}>
+	 */
+	public static function rejections(): iterable {
+		return Vectors::rejections();
+	}
+
+	/**
+	 * The shared negative vectors: tampered body, wrong key, expired timestamp, replayed
+	 * request ID and next-key rotation. The Node fake Payment Service rejects the same ones.
+	 *
+	 * @param array<string, mixed> $rejection Shared vector.
+	 */
+	#[DataProvider( 'rejections' )]
+	public function test_shared_rejection_vectors_are_rejected( array $rejection ): void {
+		$verifier = self::verifier( new MemoryReplayStore(), $rejection['environment'] );
+		if ( isset( $rejection['replays'] ) ) {
+			$original = Vectors::named( $rejection['replays'] );
+			$this->assertNotNull( $verifier->verify( $original['method'], $original['path'], $original['body'], self::headers( $original ), self::now( $original ) ), 'the original is accepted' );
+		}
+
+		$this->assertNull( $verifier->verify( $rejection['method'], $rejection['path'], $rejection['body'], $rejection['headers'], $rejection['now'] ) );
+	}
 }

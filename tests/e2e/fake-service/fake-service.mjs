@@ -7,7 +7,7 @@
 // points GQ_PAYMENTS_SERVICE_URL there and trusts its test-only certificate for that host only.
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:https';
-import { HEADERS, header, inboundPath, signHeaders, verifyRequest } from './signing.mjs';
+import { HEADERS, createVerifier, header, inboundPath, signHeaders } from './signing.mjs';
 
 export const vectors = JSON.parse(readFileSync(new URL('../../fixtures/signing.json', import.meta.url), 'utf8'));
 export const DEFAULT_PORT = Number(process.env.GQ_TEST_FAKE_SERVICE_PORT ?? 9443);
@@ -28,7 +28,7 @@ export async function startFakeService({ port = DEFAULT_PORT, siteUrl = process.
   /** @type {Array<object>} Outbound calls from the site, oldest first. */
   const calls = [];
   const scripts = new Map();
-  const seen = new Set();
+  const verifier = createVerifier();
   const selfSigned = new Set();
   let siteKeys = [vectors.site_key.public_key];
 
@@ -42,19 +42,17 @@ export async function startFakeService({ port = DEFAULT_PORT, siteUrl = process.
       json = body ? JSON.parse(body) : null;
     } catch {}
 
-    const requestKey = `${header(req.headers, HEADERS.keyId)}\n${header(req.headers, HEADERS.requestId)}`;
     // Self-signed routes (enrollment) also accept the public key the request itself carries.
     const candidates = selfSigned.has(`${req.method} ${path.split('?')[0]}`) && typeof json?.public_key === 'string' ? [...siteKeys, json.public_key] : siteKeys;
-    const signed = candidates.some((publicKey) => verifyRequest({ method: req.method, path, body, headers: req.headers, publicKey }));
-    const replayed = signed && seen.has(requestKey);
-    if (signed) seen.add(requestKey);
+    // Same verifier as the seam C vectors (tests/node/signing.test.mjs): forged, stale, tampered and replayed calls fail.
+    const verified = verifier.verify({ method: req.method, path, body, headers: req.headers, publicKeys: candidates, now: Math.floor(Date.now() / 1000) });
     const call = {
       method: req.method,
       path,
       headers: req.headers,
       body,
       json,
-      verified: signed && !replayed,
+      verified,
       keyId: header(req.headers, HEADERS.keyId),
       siteId: header(req.headers, HEADERS.siteId),
     };

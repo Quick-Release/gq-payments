@@ -117,6 +117,23 @@
       "content_digest": "sha-256=:nPRZvDS00GGIck4ZBlL/LzYhqoq30vsQTEEokJWOoGc=:",
       "canonical": "gq-payments-v1\nPOST\n/gq-payments/v1/orders/9/payment-state\ntest-production-current\n6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b\n1790000004\nc1c2d3e4-0000-4000-8000-000000000005\nsha-256=:nPRZvDS00GGIck4ZBlL/LzYhqoq30vsQTEEokJWOoGc=:",
       "signature": "5eOuxR+UWI2VO6iR+51J0Luj11sAZQEHRrNbOd9Wa+KPu3zc8iIuv6/SbbY5+3UQWeF6p0z60R/ASB2kOWEwDg=="
+    },
+    {
+      "name": "payment state from the next production Service Key (rotation)",
+      "direction": "inbound",
+      "signer": "test-production-next",
+      "method": "POST",
+      "path": "/gq-payments/v1/orders/9/payment-state",
+      "body": "{\"version\":2,\"state\":\"paid\",\"attempt_id\":\"att_09\",\"refunded_total\":\"0.00\"}",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-production-next",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000006",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000006"
+      },
+      "content_digest": "sha-256=:/RqEzrg47qVNQnzBKaHAwnkRRMIUgwtrA7Gz0AnDp9c=:",
+      "canonical": "gq-payments-v1\nPOST\n/gq-payments/v1/orders/9/payment-state\ntest-production-next\n6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b\n1790000006\nc1c2d3e4-0000-4000-8000-000000000006\nsha-256=:/RqEzrg47qVNQnzBKaHAwnkRRMIUgwtrA7Gz0AnDp9c=:",
+      "signature": "YtSFf6dtbc7c58iXWwtjUAO5zDjmwQOaybRVhnkknqSXI6H5scBIFRYh9Y33q70UwLd92OvMVmUAlOwi2xvXDA=="
     }
   ],
   "inbound_paths": [
@@ -151,6 +168,146 @@
         "q": "a b+c/é!*'()~"
       },
       "path": "/gq-test/v1/echo?q=a%20b%2Bc%2F%C3%A9%21%2A%27%28%29~"
+    }
+  ],
+  "rejections_comment": "Inbound requests a verifier trusting service_keys must reject. environment: the enrolled environment (null while unknown). replays: a case the verifier accepts first; this request reuses its key ID and request ID.",
+  "rejections": [
+    {
+      "name": "tampered body (digest no longer matches)",
+      "reason": "tampered body",
+      "method": "POST",
+      "path": "/gq-payments/v1/orders/123/payment-state",
+      "body": "{\"version\":2,\"state\":\"expired\",\"attempt_id\":\"att_01\",\"refunded_total\":\"0.00\"}",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-next",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000003",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000004",
+        "Content-Digest": "sha-256=:xLE71oxhkxUnDX1sH8MDricQql7RytNmpxmqWEXQo9U=:",
+        "GQ-Payments-Signature": "l+Sn7WZIrCtbmPgCXYDWrI8RS/93ritFuL80cdLFcI2RaL6r3EQIFb3zl71fc/hwW6dzX89SmOb7stfAOgSwCg=="
+      },
+      "now": 1790000003,
+      "environment": null
+    },
+    {
+      "name": "tampered body with a recomputed digest (signature no longer matches)",
+      "reason": "tampered body",
+      "method": "POST",
+      "path": "/gq-payments/v1/orders/123/payment-state",
+      "body": "{\"version\":2,\"state\":\"expired\",\"attempt_id\":\"att_01\",\"refunded_total\":\"0.00\"}",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-next",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000003",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000004",
+        "Content-Digest": "sha-256=:/UDy0d6hA4HJSuDMCFf0lPczofGIJ8YGAhU5ummmu8E=:",
+        "GQ-Payments-Signature": "l+Sn7WZIrCtbmPgCXYDWrI8RS/93ritFuL80cdLFcI2RaL6r3EQIFb3zl71fc/hwW6dzX89SmOb7stfAOgSwCg=="
+      },
+      "now": 1790000003,
+      "environment": null
+    },
+    {
+      "name": "signed by an untrusted key under a trusted key ID",
+      "reason": "wrong key",
+      "method": "GET",
+      "path": "/gq-payments/v1/orders/123/snapshot?key=wc_order_AbC123",
+      "body": "",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-current",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000002",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000003",
+        "Content-Digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+        "GQ-Payments-Signature": "ADp4ka+pQNxkKzL7kupLK3bFZdrdjsZOA6G59qJN50K5anEmE9cMPYJ4lA1i5KSY680U66iggJLbj0FEAC30BA=="
+      },
+      "now": 1790000002,
+      "environment": null
+    },
+    {
+      "name": "genuine signature, timestamp 301 s old",
+      "reason": "expired timestamp",
+      "method": "GET",
+      "path": "/gq-payments/v1/orders/123/snapshot?key=wc_order_AbC123",
+      "body": "",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-current",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000100",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000101",
+        "Content-Digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+        "GQ-Payments-Signature": "fU2OmVtJaE1oBkPou40qXgrT5amuZ69/0IaRTyVqNHm5b0Buc78uPKa2SUYD1aORLYY0UchF52t66/Pz4sIrCg=="
+      },
+      "now": 1790000401,
+      "environment": null
+    },
+    {
+      "name": "genuine signature, timestamp 301 s ahead",
+      "reason": "expired timestamp",
+      "method": "GET",
+      "path": "/gq-payments/v1/orders/123/snapshot?key=wc_order_AbC123",
+      "body": "",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-current",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000100",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000101",
+        "Content-Digest": "sha-256=:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=:",
+        "GQ-Payments-Signature": "fU2OmVtJaE1oBkPou40qXgrT5amuZ69/0IaRTyVqNHm5b0Buc78uPKa2SUYD1aORLYY0UchF52t66/Pz4sIrCg=="
+      },
+      "now": 1789999799,
+      "environment": null
+    },
+    {
+      "name": "freshly signed request reusing an accepted request ID",
+      "reason": "replayed request ID",
+      "replays": "payment state from the next sandbox Service Key (rotation)",
+      "method": "POST",
+      "path": "/gq-payments/v1/orders/123/payment-state",
+      "body": "{\"version\":3,\"state\":\"paid\",\"attempt_id\":\"att_01\",\"refunded_total\":\"5.00\"}",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-next",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000063",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000004",
+        "Content-Digest": "sha-256=:0dXml8efP+VpsS99ngZaBk1zArh85NyVMCRjWhi4hZI=:",
+        "GQ-Payments-Signature": "AWMGxXgpM1jVzNO75BXxxuQ6FgVQo5DjgKsfbnrLbZ6OV1jqltKrOeP/o/sJcvdLfZ+UWPZV+tXmlOkrJprNBA=="
+      },
+      "now": 1790000063,
+      "environment": null
+    },
+    {
+      "name": "next sandbox key signing under the current key ID",
+      "reason": "next-key rotation",
+      "method": "POST",
+      "path": "/gq-payments/v1/orders/123/payment-state",
+      "body": "{\"version\":2,\"state\":\"paid\",\"attempt_id\":\"att_01\",\"refunded_total\":\"0.00\"}",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-sandbox-current",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000003",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000004",
+        "Content-Digest": "sha-256=:xLE71oxhkxUnDX1sH8MDricQql7RytNmpxmqWEXQo9U=:",
+        "GQ-Payments-Signature": "36gXOqSXClj8YfZ+1vYbs6HbheRU42Pk4J4T4CqCv/0Ub6g0+qh15pWUskcAWiqSyIKgZ8Bp1cJrpjSTG1z/BQ=="
+      },
+      "now": 1790000003,
+      "environment": null
+    },
+    {
+      "name": "next production key while enrolled in sandbox",
+      "reason": "next-key rotation",
+      "method": "POST",
+      "path": "/gq-payments/v1/orders/9/payment-state",
+      "body": "{\"version\":2,\"state\":\"paid\",\"attempt_id\":\"att_09\",\"refunded_total\":\"0.00\"}",
+      "headers": {
+        "GQ-Payments-Key-Id": "test-production-next",
+        "GQ-Payments-Site-Id": "6f1c2b3a-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+        "GQ-Payments-Timestamp": "1790000006",
+        "GQ-Payments-Request-Id": "c1c2d3e4-0000-4000-8000-000000000006",
+        "Content-Digest": "sha-256=:/RqEzrg47qVNQnzBKaHAwnkRRMIUgwtrA7Gz0AnDp9c=:",
+        "GQ-Payments-Signature": "YtSFf6dtbc7c58iXWwtjUAO5zDjmwQOaybRVhnkknqSXI6H5scBIFRYh9Y33q70UwLd92OvMVmUAlOwi2xvXDA=="
+      },
+      "now": 1790000006,
+      "environment": "sandbox"
     }
   ]
 }

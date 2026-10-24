@@ -39,6 +39,31 @@ final class Vectors {
 	}
 
 	/**
+	 * Requests every verifier must reject, keyed by name for data providers.
+	 *
+	 * @return iterable<string, array{array<string, mixed>}>
+	 */
+	public static function rejections(): iterable {
+		foreach ( self::all()['rejections'] as $rejection ) {
+			yield $rejection['reason'] . ': ' . $rejection['name'] => [ $rejection ];
+		}
+	}
+
+	/**
+	 * One case by name.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function named( string $name ): array {
+		foreach ( self::all()['cases'] as $case ) {
+			if ( $name === $case['name'] ) {
+				return $case;
+			}
+		}
+		throw new \OutOfBoundsException( $name );
+	}
+
+	/**
 	 * The fixture's Service Keys as a GQ_PAYMENTS_SERVICE_PUBLIC_KEYS-shaped array.
 	 *
 	 * @return array<string, array{environment: string, public_key: string}>

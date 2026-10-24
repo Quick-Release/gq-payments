@@ -93,3 +93,22 @@ export function verifyRequest({ method, path, body = '', headers, publicKey, now
     return false;
   }
 }
+
+/**
+ * A replay-aware verifier, as the fake Payment Service uses for the site's calls: a request is
+ * genuine when one of `publicKeys` verifies it (signature, digest and window), and each
+ * (key ID, request ID) pair is accepted once. Forgeries never consume a request ID.
+ */
+export function createVerifier() {
+  const seen = new Set();
+  return {
+    verify({ method, path, body = '', headers, publicKeys, now }) {
+      const genuine = publicKeys.some((publicKey) => verifyRequest({ method, path, body, headers, publicKey, now }));
+      if (!genuine) return false;
+      const claim = `${header(headers, HEADERS.keyId)}\n${header(headers, HEADERS.requestId)}`;
+      if (seen.has(claim)) return false;
+      seen.add(claim);
+      return true;
+    },
+  };
+}
