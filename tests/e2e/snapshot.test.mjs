@@ -175,3 +175,39 @@ describe('Snapshot Revision', () => {
     assert.equal(changed.json.totals.total, '30.75');
   });
 });
+
+describe("WooCommerce's unpaid-order cancellation", () => {
+  before(async () => {
+    await site.wpOk('option', 'update', 'woocommerce_hold_stock_minutes', '1');
+  });
+  after(async () => {
+    await site.wp('option', 'update', 'woocommerce_hold_stock_minutes', '60');
+  });
+
+  const status = async (id) => site.wpOk('wc', 'shop_order', 'get', String(id), '--field=status', '--user=admin');
+  // Two hours since the last update, in both storages (the CRUD save always stamps "now").
+  const backdate = (id) =>
+    site.wpOk(
+      'eval',
+      `global $wpdb; $t = gmdate( 'Y-m-d H:i:s', time() - 2 * HOUR_IN_SECONDS );
+       $wpdb->update( $wpdb->posts, [ 'post_modified_gmt' => $t, 'post_modified' => $t ], [ 'ID' => ${Number(id)} ] );
+       if ( $wpdb->get_var( "SHOW TABLES LIKE '{$wpdb->prefix}wc_orders'" ) ) { $wpdb->update( $wpdb->prefix . 'wc_orders', [ 'date_updated_gmt' => $t ], [ 'id' => ${Number(id)} ] ); }`
+    );
+
+  test('never cancels gq_payments orders, before or after Payment Start', async () => {
+    const started = await placeOrder({ coupon: null });
+    assert.equal((await snapshot(started)).status, 200);
+    const notStarted = await placeOrder({ coupon: null });
+    // Control: another gateway's unpaid checkout order is cancelled by the same run.
+    const cheque = {
+      id: await site.wpOk('eval', "$o = wc_create_order( [ 'status' => 'pending', 'created_via' => 'store-api' ] ); $o->set_payment_method( 'cheque' ); $o->save(); echo $o->get_id();"),
+    };
+    for (const order of [started, notStarted, cheque]) await backdate(order.id);
+
+    await site.wpOk('eval', 'wc_cancel_unpaid_orders();');
+
+    assert.equal(await status(cheque.id), 'cancelled');
+    assert.equal(await status(started.id), 'pending');
+    assert.equal(await status(notStarted.id), 'pending');
+  });
+});
