@@ -53,7 +53,9 @@ test.describe('access', () => {
     await page.goto('/wp-admin/admin.php?page=gq-payments');
 
     await expect(page.getByRole('heading', { level: 1, name: 'Payments' })).toBeVisible();
-    await expect(adminMenu(page).getByRole('link', { name: 'Payments', exact: true })).toBeVisible();
+    // Scoped to GETQUICK: WooCommerce adds its own top-level "Payments" menu for shop managers.
+    const getquick = adminMenu(page).locator('li#toplevel_page_getquick-options');
+    await expect(getquick.getByRole('link', { name: 'Payments', exact: true })).toBeVisible();
   });
 
   test('a subscriber is refused', async ({ page }) => {
