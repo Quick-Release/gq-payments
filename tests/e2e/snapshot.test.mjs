@@ -238,9 +238,13 @@ describe("gq-config's restricted REST mode", () => {
   test('the allow-list entry does not open other gq-payments methods or routes', async () => {
     const order = await placeOrder({ coupon: null });
 
-    const post = await fake.callSite({ method: 'POST', route: `/gq-payments/v1/orders/${order.id}/snapshot`, json: {} });
+    // GET (snapshot) and POST (Payment State) are listed; nothing else is.
+    const put = await fake.callSite({ method: 'PUT', route: `/gq-payments/v1/orders/${order.id}/snapshot`, json: {} });
+    const other = await fake.callSite({ method: 'GET', route: '/gq-payments/v1/other' });
 
-    assert.equal(post.status, 401, post.text);
-    assert.equal(post.json.code, 'getquick_rest_auth_required');
+    assert.equal(put.status, 401, put.text);
+    assert.equal(put.json.code, 'getquick_rest_auth_required');
+    assert.equal(other.status, 401, other.text);
+    assert.equal(other.json.code, 'getquick_rest_auth_required');
   });
 });

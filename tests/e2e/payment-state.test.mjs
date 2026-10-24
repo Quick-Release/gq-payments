@@ -3,7 +3,7 @@
 // (Payment Start), then sends versioned Payment State messages.
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
-import { startFakeService } from './fake-service/fake-service.mjs';
+import { startFakeService, vectors } from './fake-service/fake-service.mjs';
 import { connectSite, forgetConnection } from './lib/connect.mjs';
 import { baseline, singleSite as site } from './lib/site.mjs';
 import { createProduct, shopper } from './lib/store.mjs';
@@ -248,5 +248,162 @@ describe('paid after an admin edit (Snapshot Revision mismatch)', () => {
     assert.equal((await sendState(order, { version: 1, state: 'paid' })).status, 200);
 
     assert.ok(!(await notes(order)).some((note) => note.includes('— review')));
+  });
+});
+
+describe('forged and unsigned messages', () => {
+  const paidBody = (order) => ({ version: 1, state: 'paid', refunded_total: '0.00', method: 'mbway', attempt_id: 'att_forged', snapshot_revision: order.revision });
+  const unchanged = async (order) => {
+    const current = await wcOrder(order);
+    assert.equal(current.status, 'pending');
+    assert.equal(current.transaction_id, '');
+    assert.deepEqual(await stateNotes(order), []);
+    assert.deepEqual(await emails(order), []);
+  };
+
+  test('an unsigned message is rejected and changes nothing', async () => {
+    const order = await startedOrder();
+
+    const response = await fetch(`${site.url}/wp-json/gq-payments/v1/orders/${order.id}/payment-state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(paidBody(order)),
+    });
+
+    assert.equal(response.status, 401);
+    await unchanged(order);
+  });
+
+  test('a message signed with a key that is not a Service Key is rejected', async () => {
+    const order = await startedOrder();
+
+    const response = await sendState(order, { state: 'paid' }, { secretKey: vectors.stranger_key.secret_key });
+
+    assert.equal(response.status, 401, response.text);
+    assert.equal(response.json.code, 'gq_payments_unauthorized');
+    await unchanged(order);
+  });
+
+  test('a genuine message whose body was altered in transit is rejected', async () => {
+    const order = await startedOrder();
+    const request = fake.signRequest({ method: 'POST', route: `/gq-payments/v1/orders/${order.id}/payment-state`, json: { ...paidBody(order), state: 'pending' }, siteId: connection.siteId });
+
+    const response = await fake.send({ ...request, body: JSON.stringify(paidBody(order)) });
+
+    assert.equal(response.status, 401, response.text);
+    await unchanged(order);
+  });
+
+  test('a replayed message is rejected', async () => {
+    const order = await startedOrder();
+    const request = fake.signRequest({ method: 'POST', route: `/gq-payments/v1/orders/${order.id}/payment-state`, json: { ...paidBody(order), state: 'pending' }, siteId: connection.siteId });
+    assert.equal((await fake.send(request)).status, 200);
+
+    assert.equal((await fake.send(request)).status, 401);
+  });
+});
+
+describe('manual status changes', () => {
+  test('an admin marking a started order Processing gets a "not payment evidence" note', async () => {
+    const order = await startedOrder();
+
+    await site.wpOk('wc', 'shop_order', 'update', String(order.id), '--status=processing', '--user=admin');
+
+    assert.ok((await notes(order)).some((note) => note.startsWith('Status set manually to Processing — not payment evidence.')));
+  });
+
+  test('a later change of a paid order is noted as manual too; the Payment State change itself is not', async () => {
+    const order = await startedOrder();
+    assert.equal((await sendState(order, { version: 1, state: 'paid' })).status, 200);
+    assert.ok(!(await notes(order)).some((note) => note.includes('not payment evidence')));
+
+    await site.wpOk('wc', 'shop_order', 'update', String(order.id), '--status=completed', '--user=admin');
+
+    assert.ok((await notes(order)).some((note) => note.startsWith('Status set manually to Completed — not payment evidence.')));
+  });
+
+  test('a paid state for an order already set to Processing by hand leaves the status and notes the verified payment', async () => {
+    const order = await startedOrder();
+    await site.wpOk('wc', 'shop_order', 'update', String(order.id), '--status=processing', '--user=admin');
+
+    assert.equal((await sendState(order, { version: 1, state: 'paid', attempt_id: 'att_after_manual' })).status, 200);
+
+    assert.equal((await wcOrder(order)).status, 'processing');
+    assert.ok((await stateNotes(order)).some((note) => /"paid" \(version 1, attempt att_after_manual\): recorded; the order is Processing/.test(note)));
+  });
+});
+
+describe('message validation', () => {
+  const rejects = async (order, state, field) => {
+    const response = await sendState(order, state);
+    assert.equal(response.status, 400, `${JSON.stringify(state)}: ${response.text}`);
+    assert.equal(response.json.code, 'gq_payments_invalid_payment_state');
+    assert.equal(response.json.data.field, field);
+  };
+
+  test('malformed fields are rejected with the field name and change nothing', async () => {
+    const order = await startedOrder();
+
+    await rejects(order, { version: 0 }, 'version');
+    await rejects(order, { version: '2' }, 'version');
+    await rejects(order, { state: 'refunded' }, 'state');
+    await rejects(order, { refunded_total: '-1.00' }, 'refunded_total');
+    await rejects(order, { refunded_total: '1.001', state: 'paid' }, 'refunded_total');
+    await rejects(order, { refunded_total: 5 }, 'refunded_total');
+    await rejects(order, { refunded_total: '1.00', state: 'pending' }, 'refunded_total');
+    await rejects(order, { method: 'MB WAY' }, 'method');
+    await rejects(order, { state: 'paid', attempt_id: '' }, 'attempt_id');
+    await rejects(order, { snapshot_revision: 'abc' }, 'snapshot_revision');
+
+    assert.equal((await wcOrder(order)).status, 'pending');
+    assert.deepEqual(await stateNotes(order), []);
+  });
+
+  test('the cumulative refunded total never decreases nor exceeds the amount collected; no WooCommerce refund is created', async () => {
+    const order = await startedOrder();
+    assert.equal((await sendState(order, { version: 1, state: 'paid' })).status, 200);
+
+    await rejects(order, { version: 2, state: 'paid', refunded_total: '20.01' }, 'refunded_total');
+    assert.equal((await sendState(order, { version: 2, state: 'paid', refunded_total: '5.00' })).status, 200);
+    await rejects(order, { version: 3, state: 'paid', refunded_total: '4.99' }, 'refunded_total');
+
+    const current = await wcOrder(order);
+    assert.deepEqual(current.refunds, []);
+    assert.equal(current.status, 'processing');
+  });
+
+  test('unknown orders, other gateways and orders not yet started are refused', async () => {
+    const product = await createProduct(site, { stock: 5 });
+    const s = await shopper();
+    await s.addItem(product, 1);
+    const checkout = await s.checkout({ payment: mbway });
+    const notStarted = { id: checkout.json.order_id, revision: 'a'.repeat(64) };
+    const cheque = { id: Number(await site.wpOk('wc', 'shop_order', 'create', '--payment_method=cheque', '--status=pending', '--user=admin', '--porcelain')), revision: 'a'.repeat(64) };
+
+    assert.equal((await sendState({ id: 999999, revision: 'a'.repeat(64) }, {})).status, 404);
+    assert.equal((await sendState(cheque, {})).status, 404);
+    const early = await sendState(notStarted, {});
+    assert.equal(early.status, 409, early.text);
+    assert.equal(early.json.code, 'gq_payments_payment_not_started');
+  });
+});
+
+describe("gq-config's restricted REST mode", () => {
+  before(async () => {
+    await site.wpOk('option', 'update', 'gq_test_anonymous_rest_mode', 'restricted');
+    await site.wpOk('option', 'update', 'gq_test_public_rest_routes', '{"/wc/store/v1/*":["GET","POST","OPTIONS"]}', '--format=json');
+  });
+  after(async () => {
+    await site.wp('option', 'delete', 'gq_test_anonymous_rest_mode');
+    await site.wp('option', 'delete', 'gq_test_public_rest_routes');
+  });
+
+  test('the Payment State route is on the allow-list', async () => {
+    const order = await startedOrder();
+
+    const response = await sendState(order, { version: 1, state: 'paid' });
+
+    assert.equal(response.status, 200, response.text);
+    assert.equal((await wcOrder(order)).status, 'processing');
   });
 });

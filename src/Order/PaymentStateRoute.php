@@ -109,7 +109,11 @@ final class PaymentStateRoute {
 				return self::acknowledge( $orderId, $applied, false );
 			}
 
-			$this->mirror->apply( $order, $state );
+			try {
+				$this->mirror->apply( $order, $state );
+			} catch ( InvalidPaymentState $invalid ) {
+				return self::invalid( $invalid->getMessage() );
+			}
 			return self::acknowledge( $orderId, $state->version, true );
 		} finally {
 			self::unlock( $orderId );

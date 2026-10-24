@@ -29,10 +29,16 @@ final class PaymentStateMirror {
 	 *
 	 * @param WC_Order     $order Order past Payment Start.
 	 * @param PaymentState $state Newer version.
+	 * @throws InvalidPaymentState When its refunded total is impossible for this order; nothing is changed.
 	 */
 	public function apply( WC_Order $order, PaymentState $state ): void {
 		$previous      = (string) $order->get_meta( OrderMeta::REFUNDED_TOTAL );
 		$previousMinor = '' === $previous ? 0 : PaymentState::minorUnits( $previous, wc_get_price_decimals() );
+		$collected     = self::collectedMinor( $order, $state );
+		// The total is cumulative: refunds are never undone, and never exceed what was collected.
+		if ( $state->refundedMinor < $previousMinor || ( null !== $collected && $state->refundedMinor > $collected ) ) {
+			throw new InvalidPaymentState( 'refunded_total' );
+		}
 
 		// Set first, so the save inside any status change below stores them with it.
 		$order->update_meta_data( OrderMeta::STATE_VERSION, (string) $state->version );
@@ -136,7 +142,8 @@ final class PaymentStateMirror {
 			return;
 		}
 		$currentTotal = self::money( (string) $order->get_total(), $order );
-		$collected    = self::collectedTotal( $order, $state );
+		$minor        = self::collectedMinor( $order, $state );
+		$collected    = null === $minor ? null : PaymentState::decimal( $minor, wc_get_price_decimals() ) . ' ' . $order->get_currency();
 		$order->add_order_note(
 			null === $collected
 				? sprintf(
@@ -155,17 +162,22 @@ final class PaymentStateMirror {
 	}
 
 	/**
-	 * The amount collected, when the payment's Snapshot Revision is the one taken at Payment Start.
+	 * The amount collected in minor units, when the payment's Snapshot Revision is known:
+	 * the one taken at Payment Start, or the order's current one.
 	 *
 	 * @param WC_Order     $order Order.
 	 * @param PaymentState $state State.
 	 */
-	private static function collectedTotal( WC_Order $order, PaymentState $state ): ?string {
-		$total = (string) $order->get_meta( OrderMeta::SNAPSHOT_TOTAL );
-		if ( '' === $total || ! hash_equals( (string) $order->get_meta( OrderMeta::SNAPSHOT_REVISION ), $state->snapshotRevision ) ) {
-			return null;
+	private static function collectedMinor( WC_Order $order, PaymentState $state ): ?int {
+		$decimals = wc_get_price_decimals();
+		$total    = (string) $order->get_meta( OrderMeta::SNAPSHOT_TOTAL );
+		if ( '' !== $total && hash_equals( (string) $order->get_meta( OrderMeta::SNAPSHOT_REVISION ), $state->snapshotRevision ) ) {
+			return PaymentState::minorUnits( wc_format_decimal( $total, $decimals ), $decimals );
 		}
-		return self::money( $total, $order );
+		if ( hash_equals( OrderSnapshot::revision( $order ), $state->snapshotRevision ) ) {
+			return PaymentState::minorUnits( wc_format_decimal( (string) $order->get_total(), $decimals ), $decimals );
+		}
+		return null;
 	}
 
 	/**
