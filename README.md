@@ -150,7 +150,8 @@ on:
 
 Snapshots and Payment State messages for one order take the same per-order
 MySQL named lock, so concurrent first snapshots mark Payment Start, and reduce
-stock, exactly once.
+stock, exactly once. A snapshot that waited 10 s for the lock gets **503**
+`gq_payments_busy`; retry it.
 
 From Payment Start, `gq_payments` orders are never cancelled by WooCommerce's
 unpaid-order timer: the Payment Service owns their expiry (ADR 0005). Before
