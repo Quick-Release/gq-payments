@@ -23,7 +23,8 @@ before(async () => {
 afterEach(() => fake.reset());
 after(async () => {
   await site.wp('wc', 'shop_coupon', 'delete', setup.coupon, '--force=true', '--user=admin');
-  await site.wp('wc', 'shipping_zone_method', 'delete', '0', setup.shipping, '--force=true', '--user=admin');
+  // The REST/CLI delete cannot address the "rest of the world" zone (ID 0).
+  await site.wp('eval', `(new WC_Shipping_Zone( 0 ))->delete_shipping_method( ${Number(setup.shipping)} );`);
   await site.wp('wc', 'tax', 'delete', setup.taxRate, '--force=true', '--user=admin');
   await site.wp('option', 'update', 'woocommerce_calc_taxes', 'no');
   await site.wp('option', 'delete', 'gq_payments_site_id');
@@ -75,5 +76,39 @@ describe('signed Order Snapshot', () => {
       },
     });
     assert.match(revision, /^[0-9a-f]{64}$/);
+  });
+
+  const notFound = { code: 'gq_payments_order_not_found', message: 'Order not found.', data: { status: 404 } };
+
+  test('requires the order key: a missing or wrong key reads like an unknown order', async () => {
+    const order = await placeOrder({ coupon: null });
+
+    for (const key of [undefined, '', 'wc_order_wrong', order.key.toUpperCase()]) {
+      const response = await snapshot({ ...order, key });
+      assert.equal(response.status, 404, `key ${key}: ${response.text}`);
+      assert.deepEqual(response.json, notFound);
+    }
+  });
+
+  test('refuses unknown orders and orders not paid through gq_payments', async () => {
+    const cheque = await site.wpOk('wc', 'shop_order', 'create', '--payment_method=cheque', '--status=pending', '--user=admin', '--porcelain');
+    const chequeKey = JSON.parse(await site.wpOk('wc', 'shop_order', 'get', cheque, '--user=admin', '--format=json')).order_key;
+
+    for (const target of [{ id: 999999, key: 'wc_order_x' }, { id: Number(cheque), key: chequeKey }]) {
+      const response = await snapshot(target);
+      assert.equal(response.status, 404, response.text);
+      assert.deepEqual(response.json, notFound);
+    }
+  });
+
+  test('only the Payment Service can read it: unsigned and foreign-site requests are refused', async () => {
+    const order = await placeOrder({ coupon: null });
+
+    const unsigned = await fetch(`${site.url}/wp-json/gq-payments/v1/orders/${order.id}/snapshot?key=${order.key}`);
+    const foreign = await snapshot(order, { siteId: '00000000-0000-4000-8000-000000000000' });
+
+    assert.equal(unsigned.status, 401);
+    assert.equal(foreign.status, 401, foreign.text);
+    assert.equal(foreign.json.code, 'gq_payments_unauthorized');
   });
 });
