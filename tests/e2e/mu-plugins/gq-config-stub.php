@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: gq-config stub (tests)
- * Description: Emulates the parts of the private gq-config plugin GQ Payments integrates with: the GETQUICK menu and the anonymous restricted-REST gate.
+ * Description: Emulates the parts of the private gq-config plugin GQ Payments integrates with: the GETQUICK menu (with the sibling GETQUICK plugins' entries) and the anonymous restricted-REST gate.
  *
  * Options that steer it:
  * - gq_test_gqconfig_menu = "off": remove the GETQUICK menu.
@@ -33,6 +33,22 @@ add_action(
 		);
 	}
 );
+
+// The sibling GETQUICK plugins' entries under the same menu, registered as they do:
+// GETQUICK Design's Design (position 0, priority 20) and Elements (1, priority 21), and
+// GETQUICK Support's Support (2, priority 22).
+foreach ( [ [ 'Design', 'gq-design-stub', 0, 20 ], [ 'Elements', 'gq-elements-stub', 1, 21 ], [ 'Support', 'gq-support-stub', 2, 22 ] ] as [ $gq_test_title, $gq_test_slug, $gq_test_position, $gq_test_priority ] ) {
+	add_action(
+		'admin_menu',
+		static function () use ( $gq_test_title, $gq_test_slug, $gq_test_position ): void {
+			global $admin_page_hooks;
+			if ( isset( $admin_page_hooks['getquick-options'] ) ) {
+				add_submenu_page( 'getquick-options', $gq_test_title, $gq_test_title, 'manage_options', $gq_test_slug, '__return_null', $gq_test_position );
+			}
+		},
+		$gq_test_priority
+	);
+}
 
 // Same logic as gq-config/includes/class-access-policy.php Access_Policy::rest_request()
 // (gq-config's settings store is replaced by option gq_test_anonymous_rest_mode).

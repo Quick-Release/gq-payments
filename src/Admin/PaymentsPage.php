@@ -54,7 +54,7 @@ final class PaymentsPage {
 	 * Hooks the screen into the admin menu.
 	 */
 	public function register(): void {
-		// After gq-config's menu (10), GETQUICK Design's entries (20, 21) and GETQUICK Support (22).
+		// After gq-config's menu (10), GETQUICK Design's entries (20, 21) and GETQUICK Support (22); see addPage() for the position.
 		add_action( 'admin_menu', [ $this, 'addPage' ], 23 );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueueAssets' ] );
 		foreach ( self::ACTIONS as $action => $handler ) {
@@ -71,7 +71,8 @@ final class PaymentsPage {
 		$title = __( 'Payments', 'gq-payments' );
 
 		if ( isset( $admin_page_hooks[ self::GETQUICK_MENU ] ) ) {
-			$hook = add_submenu_page( self::GETQUICK_MENU, $title, $title, self::CAPABILITY, self::SLUG, [ $this, 'render' ] );
+			// Position 3: after GETQUICK Design's Design (0) and Elements (1) and GETQUICK Support (2).
+			$hook = add_submenu_page( self::GETQUICK_MENU, $title, $title, self::CAPABILITY, self::SLUG, [ $this, 'render' ], 3 );
 		} else {
 			$hook = add_options_page( $title, $title, self::CAPABILITY, self::SLUG, [ $this, 'render' ] );
 		}

@@ -20,6 +20,14 @@ test('sits under GETQUICK → Payments when gq-config provides the menu', async 
   await expect(adminMenu(page).locator('#menu-settings').getByRole('link', { name: 'Payments', exact: true })).toHaveCount(0);
 });
 
+test('comes after the other GETQUICK plugins in the GETQUICK menu', async ({ page }) => {
+  await page.goto('/wp-admin/');
+
+  const entries = await adminMenu(page).locator('li#toplevel_page_getquick-options .wp-submenu a').allTextContents();
+
+  expect(entries.slice(0, 4)).toEqual(['Design', 'Elements', 'Support', 'Payments']);
+});
+
 test('falls back to Settings → Payments without the GETQUICK menu', async ({ page }) => {
   await site.wpOk('option', 'update', 'gq_test_gqconfig_menu', 'off');
   await page.goto('/wp-admin/');
