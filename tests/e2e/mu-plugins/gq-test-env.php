@@ -112,6 +112,23 @@ add_action(
 // activate WooCommerce and then open an admin page would otherwise flake on fresh sites.
 add_filter( 'woocommerce_prevent_automatic_wizard_redirect', '__return_true' );
 
+// Records every WooCommerce email sent (whether or not delivery succeeds) in option
+// gq_test_emails as [ { id, order_id, recipient } ], so tests can assert which emails went out.
+add_action(
+	'woocommerce_email_sent',
+	static function ( $sent, $id, $email ): void {
+		$log   = (array) get_option( 'gq_test_emails', [] );
+		$log[] = [
+			'id'        => (string) $id,
+			'order_id'  => $email->object instanceof WC_Order ? $email->object->get_id() : null,
+			'recipient' => (string) $email->get_recipient(),
+		];
+		update_option( 'gq_test_emails', $log, false );
+	},
+	10,
+	3
+);
+
 add_filter(
 	'pre_http_request',
 	static function ( $response, $args, $url ) {
