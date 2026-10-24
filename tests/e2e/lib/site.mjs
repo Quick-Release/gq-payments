@@ -65,8 +65,8 @@ export function site({ config, url }) {
       throw new Error(`Login as ${username} failed with HTTP ${response.status}`);
     }
 
-    return async function get(path) {
-      const page = await fetch(`${url}${path}`, { redirect: 'manual', headers: { cookie: cookieHeader() } });
+    return async function get(path, { headers = {} } = {}) {
+      const page = await fetch(`${url}${path}`, { redirect: 'manual', headers: { ...headers, cookie: cookieHeader() } });
       return { status: page.status, html: await page.text() };
     };
   }
