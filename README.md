@@ -15,7 +15,7 @@ holds payment credentials, never decides whether a payment happened and never
 moves money. Vocabulary: [GLOSSARY.md](GLOSSARY.md); decisions:
 [docs/adr](docs/adr).
 
-Requires WordPress 7.0+ and PHP 8.4.1+, matching the newer GQ plugins, plus
+Requires WordPress 7.1+ and PHP 8.4.1+, matching the newer GQ plugins, plus
 WooCommerce 10.9+ and GQ eCommerce (`Requires Plugins: woocommerce,
 getquick-ecommerce`). GQ Payments is single-site only: network activation is
 refused. Its screen is **GETQUICK → Payments** (gq-config's menu), or
@@ -333,7 +333,10 @@ emulates the restricted-REST gate, which these options toggle:
 - `gq_test_anonymous_rest_mode`: `restricted` turns the gate on.
 - `gq_test_public_rest_routes`: extra allow-list entries.
 
-CI runs the site suite under legacy and HPOS order storage.
+CI runs the site suite under legacy and HPOS order storage, on WordPress
+7.1.4 only. GETQUICK supports only the latest WordPress release, so the test
+core in `.wp-env.json` and `tests/e2e/multisite/.wp-env.json` is bumped whenever
+WordPress ships a release, and `Requires at least` follows its minor.
 
 To run a second environment alongside the default one, put the ports in a
 git-ignored `.wp-env.override.json`, for example

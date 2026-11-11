@@ -6,7 +6,7 @@
  * Plugin URI: https://github.com/Quick-Release/gq-payments
  * Description: Connects WooCommerce checkout to GETQUICK's Payment Service.
  * Version: 0.0.1
- * Requires at least: 7.0
+ * Requires at least: 7.1
  * Requires PHP: 8.4.1
  * Requires Plugins: woocommerce, getquick-ecommerce
  * WC requires at least: 10.9

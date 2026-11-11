@@ -1,6 +1,6 @@
 === GQ Payments ===
 Tags: payments, getquick, woocommerce
-Requires at least: 7.0
+Requires at least: 7.1
 Requires PHP: 8.4.1
 Requires Plugins: woocommerce, getquick-ecommerce
 WC requires at least: 10.9
@@ -26,7 +26,7 @@ never decides whether a payment happened and never moves money.
   made in Banquinha.
 * All traffic with the Payment Service is signed with Ed25519.
 
-Requirements: WordPress 7.0+, PHP 8.4.1+, WooCommerce 10.9+ and GQ eCommerce.
+Requirements: WordPress 7.1+, PHP 8.4.1+, WooCommerce 10.9+ and GQ eCommerce.
 Single sites only (network activation is refused). Works with HPOS and legacy
 order storage.
 
